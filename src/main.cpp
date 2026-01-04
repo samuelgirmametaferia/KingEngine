@@ -34,6 +34,13 @@ static ID3D11DepthStencilState* gDSS = nullptr;
 static ID3D11RasterizerState* gRS = nullptr;
 static D3D11_VIEWPORT gViewport{};
 
+// Renderer-owned backbuffer state and resize queue.
+static UINT gBackBufferW = 0;
+static UINT gBackBufferH = 0;
+static bool gResizeQueued = false;
+static UINT gQueuedW = 0;
+static UINT gQueuedH = 0;
+
 static void SafeRelease(IUnknown* p)
 {
     if (p) p->Release();
@@ -159,7 +166,14 @@ static HRESULT CreateRenderTarget()
     HRESULT hr = gSwapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), (void**)&backBuffer);
     if (FAILED(hr)) return hr;
 
-    hr = gDevice->CreateRenderTargetView(backBuffer, nullptr, &gRTV);
+    // Prefer sRGB RTV for correct gamma output (fallback to default if unsupported).
+    D3D11_RENDER_TARGET_VIEW_DESC rtvDesc{};
+    rtvDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
+    rtvDesc.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
+    rtvDesc.Texture2D.MipSlice = 0;
+    hr = gDevice->CreateRenderTargetView(backBuffer, &rtvDesc, &gRTV);
+    if (FAILED(hr))
+        hr = gDevice->CreateRenderTargetView(backBuffer, nullptr, &gRTV);
     backBuffer->Release();
     return hr;
 }
@@ -195,6 +209,9 @@ static HRESULT Resize(UINT width, UINT height)
 {
     if (!gSwapChain) return S_OK;
 
+    gBackBufferW = width;
+    gBackBufferH = height;
+
     if (gContext)
     {
         gContext->OMSetRenderTargets(0, nullptr, nullptr);
@@ -221,6 +238,99 @@ static HRESULT Resize(UINT width, UINT height)
     gViewport.MaxDepth = 1.0f;
 
     return S_OK;
+}
+
+static void QueueResize(UINT width, UINT height)
+{
+    gResizeQueued = true;
+    gQueuedW = width;
+    gQueuedH = height;
+}
+
+static void ApplyQueuedResizeIfAny(king::Scene& scene)
+{
+    if (!gResizeQueued)
+        return;
+
+    gResizeQueued = false;
+    if (gQueuedW == 0 || gQueuedH == 0)
+        return;
+
+    HRESULT hr = Resize(gQueuedW, gQueuedH);
+    if (FAILED(hr))
+    {
+        LogHResult("Resize(from queued)", hr);
+        return;
+    }
+
+    // Update primary camera aspect inside the render-owned resize.
+    for (auto e : scene.reg.cameras.Entities())
+    {
+        auto* cc = scene.reg.cameras.TryGet(e);
+        if (cc && cc->primary)
+        {
+            king::PerspectiveParams p;
+            p.aspect = (gQueuedH > 0) ? ((float)gQueuedW / (float)gQueuedH) : (16.0f / 9.0f);
+            cc->camera.SetPerspective(p);
+            break;
+        }
+    }
+}
+
+static void ReleaseSceneMeshBuffers(king::Scene& scene)
+{
+    for (auto me : scene.reg.meshes.Entities())
+    {
+        auto* m = scene.reg.meshes.TryGet(me);
+        if (m && m->vb)
+        {
+            m->vb->Release();
+            m->vb = nullptr;
+        }
+    }
+}
+
+static bool TryRecoverFromDeviceLost(king::Scene& scene, HWND hwnd)
+{
+    // Drop scene GPU buffers before device teardown.
+    ReleaseSceneMeshBuffers(scene);
+    CleanupD3D();
+
+    // Recreate D3D with last known size.
+    UINT w = gBackBufferW;
+    UINT h = gBackBufferH;
+    if (w == 0 || h == 0)
+    {
+        RECT r{};
+        GetClientRect(hwnd, &r);
+        w = (UINT)((r.right > r.left) ? (r.right - r.left) : 1280);
+        h = (UINT)((r.bottom > r.top) ? (r.bottom - r.top) : 720);
+    }
+
+    HRESULT hr = InitD3D(hwnd, w, h);
+    if (FAILED(hr))
+        return false;
+
+    // Ensure viewport/aspect match the current size.
+    QueueResize(w, h);
+    ApplyQueuedResizeIfAny(scene);
+    return true;
+}
+
+static void EnableDpiAwareness()
+{
+    // Avoid extra SDK/lib dependencies: dynamically call user32!SetProcessDpiAwarenessContext if present.
+    HMODULE user32 = GetModuleHandleW(L"user32.dll");
+    if (!user32)
+        return;
+
+    using Fn = BOOL(WINAPI*)(HANDLE);
+    auto fn = (Fn)GetProcAddress(user32, "SetProcessDpiAwarenessContext");
+    if (!fn)
+        return;
+
+    // DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 == (HANDLE)-4
+    fn((HANDLE)-4);
 }
 
 struct CameraCBData
@@ -361,6 +471,12 @@ static HRESULT InitD3D(HWND hwnd, UINT width, UINT height)
     for (const auto& r : vs.reflection.resources)
         std::printf("  res: %s type=%u slot=%u count=%u\n", r.name.c_str(), (unsigned)r.type, r.bindPoint, r.bindCount);
     for (const auto& cb : vs.reflection.cbuffers)
+        std::printf("  cbuf: %s slot=%u size=%u\n", cb.name.c_str(), cb.bindPoint, cb.sizeBytes);
+
+    std::printf("PS reflection: %zu resources, %zu cbuffers\n", ps.reflection.resources.size(), ps.reflection.cbuffers.size());
+    for (const auto& r : ps.reflection.resources)
+        std::printf("  res: %s type=%u slot=%u count=%u\n", r.name.c_str(), (unsigned)r.type, r.bindPoint, r.bindCount);
+    for (const auto& cb : ps.reflection.cbuffers)
         std::printf("  cbuf: %s slot=%u size=%u\n", cb.name.c_str(), cb.bindPoint, cb.sizeBytes);
 
     hr = gDevice->CreateVertexShader(vs.bytecode->GetBufferPointer(), vs.bytecode->GetBufferSize(), nullptr, &gVS);
@@ -525,6 +641,7 @@ static HRESULT CreateVertexBuffer(const std::vector<king::VertexPN>& verts, ID3D
 
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int nCmdShow)
 {
+    EnableDpiAwareness();
     SetupDebugConsole();
     std::printf("King starting...\n");
 
@@ -656,6 +773,9 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int nCmdShow)
         return 1;
     }
 
+    // Seed render-owned resize path.
+    QueueResize(width, height);
+
     king::Window::Event ev{};
     while (window.PumpMessages())
     {
@@ -663,30 +783,24 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int nCmdShow)
         {
             if (ev.type == king::Window::EventType::Resize)
             {
-                if (gSwapChain && ev.width > 0 && ev.height > 0)
-                {
-                    HRESULT hr = Resize((UINT)ev.width, (UINT)ev.height);
-                    if (FAILED(hr))
-                        LogHResult("Resize(from event)", hr);
-
-                    // Update primary camera aspect
-                    for (auto e : scene.reg.cameras.Entities())
-                    {
-                        auto* cc = scene.reg.cameras.TryGet(e);
-                        if (cc && cc->primary)
-                        {
-                            king::PerspectiveParams p;
-                            p.aspect = (ev.height > 0) ? ((float)ev.width / (float)ev.height) : (16.0f / 9.0f);
-                            cc->camera.SetPerspective(p);
-                        }
-                    }
-                }
+                if (ev.width > 0 && ev.height > 0)
+                    QueueResize((UINT)ev.width, (UINT)ev.height);
             }
             else if (ev.type == king::Window::EventType::CloseRequested)
             {
                 std::printf("Close requested.\n");
             }
         }
+
+        // Skip rendering while minimized.
+        if (IsIconic(window.Handle()))
+        {
+            Sleep(16);
+            continue;
+        }
+
+        // Apply queued resize at a stable point owned by the renderer.
+        ApplyQueuedResizeIfAny(scene);
 
         // CameraSystem (very small): sync camera position from Transform.
         king::Mat4x4 viewProj{};
@@ -778,19 +892,30 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int nCmdShow)
             gContext->Draw((UINT)m->vertices.size(), 0);
         }
 
-        gSwapChain->Present(1, 0);
+        HRESULT phr = gSwapChain->Present(1, 0);
+        if (FAILED(phr))
+        {
+            if (phr == DXGI_ERROR_DEVICE_REMOVED || phr == DXGI_ERROR_DEVICE_RESET)
+            {
+                HRESULT reason = gDevice ? gDevice->GetDeviceRemovedReason() : phr;
+                LogHResult("Present(device lost)", phr);
+                LogHResult("DeviceRemovedReason", reason);
+
+                if (!TryRecoverFromDeviceLost(scene, window.Handle()))
+                {
+                    std::printf("Failed to recover from device lost. Exiting.\n");
+                    break;
+                }
+            }
+            else
+            {
+                LogHResult("Present", phr);
+            }
+        }
     }
 
     // Release mesh vertex buffers
-    for (auto me : scene.reg.meshes.Entities())
-    {
-        auto* m = scene.reg.meshes.TryGet(me);
-        if (m && m->vb)
-        {
-            m->vb->Release();
-            m->vb = nullptr;
-        }
-    }
+    ReleaseSceneMeshBuffers(scene);
 
     CleanupD3D();
     return 0;

@@ -3,12 +3,12 @@
 This file tracks the improvements we identified and whether they’re implemented.
 
 ## Rendering correctness
-- [ ] Renderer-owned resize handling (queue resize from window, apply at start-of-frame)
-- [ ] Update camera aspect on resize inside RenderSystem
-- [ ] Skip rendering when minimized / zero-sized
-- [ ] Correct constant buffer binding + reflection logging for both VS and PS
-- [ ] Use sRGB render target view for gamma-correct output
-- [ ] Handle device removed/reset (recreate D3D device + resources)
+- [x] Renderer-owned resize handling (queue resize from window, apply at start-of-frame)
+- [x] Update camera aspect on resize inside RenderSystem
+- [x] Skip rendering when minimized / zero-sized
+- [x] Correct constant buffer binding + reflection logging for both VS and PS
+- [x] Use sRGB render target view for gamma-correct output
+- [x] Handle device removed/reset (recreate D3D device + resources; basic recovery in place)
 
 ## Architecture
 - [ ] Move D3D globals out of main into a RenderDevice class
