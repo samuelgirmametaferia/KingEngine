@@ -374,6 +374,10 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
   <ItemGroup>
     <ClCompile Include="C:\Users\Samuel Girma\Music\KingEngine\src\main.cpp" />
     <ClCompile Include="C:\Users\Samuel Girma\Music\KingEngine\src\king_window.cpp" />
+    <ClCompile Include="C:\Users\Samuel Girma\Music\KingEngine\src\king\render\d3d11\render_device_d3d11.cpp" />
+    <ClCompile Include="C:\Users\Samuel Girma\Music\KingEngine\src\king\render\d3d11\render_system_d3d11.cpp" />
+    <ClCompile Include="C:\Users\Samuel Girma\Music\KingEngine\src\king\systems\camera_system.cpp" />
+    <ClCompile Include="C:\Users\Samuel Girma\Music\KingEngine\src\king\systems\lighting_system.cpp" />
     <ClCompile Include="C:\Users\Samuel Girma\Music\KingEngine\src\king\scene\camera.cpp" />
     <ClCompile Include="C:\Users\Samuel Girma\Music\KingEngine\src\king\scene\frustum.cpp" />
     <ClCompile Include="C:\Users\Samuel Girma\Music\KingEngine\src\king\render\material.cpp" />

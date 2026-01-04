@@ -1,5 +1,6 @@
 #include "king_window.h"
 
+#include <windowsx.h>
 #include <cstdio>
 
 namespace king
@@ -191,6 +192,142 @@ LRESULT Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
 {
     switch (msg)
     {
+    case WM_SETFOCUS:
+    {
+        Event e{};
+        e.type = EventType::FocusGained;
+        PushEvent(e);
+        return 0;
+    }
+
+    case WM_KILLFOCUS:
+    {
+        Event e{};
+        e.type = EventType::FocusLost;
+        PushEvent(e);
+        return 0;
+    }
+
+    case WM_KEYDOWN:
+    case WM_SYSKEYDOWN:
+    {
+        Event e{};
+        e.type = EventType::KeyDown;
+        e.key = (uint32_t)wParam;
+        e.repeat = (lParam & (1 << 30)) != 0;
+        PushEvent(e);
+        return 0;
+    }
+
+    case WM_KEYUP:
+    case WM_SYSKEYUP:
+    {
+        Event e{};
+        e.type = EventType::KeyUp;
+        e.key = (uint32_t)wParam;
+        PushEvent(e);
+        return 0;
+    }
+
+    case WM_MOUSEMOVE:
+    {
+        Event e{};
+        e.type = EventType::MouseMove;
+        e.mouseX = (int32_t)GET_X_LPARAM(lParam);
+        e.mouseY = (int32_t)GET_Y_LPARAM(lParam);
+        PushEvent(e);
+        return 0;
+    }
+
+    case WM_LBUTTONDOWN:
+    case WM_RBUTTONDOWN:
+    case WM_MBUTTONDOWN:
+    case WM_XBUTTONDOWN:
+    {
+        Event e{};
+        e.type = EventType::MouseButtonDown;
+        e.mouseX = (int32_t)GET_X_LPARAM(lParam);
+        e.mouseY = (int32_t)GET_Y_LPARAM(lParam);
+
+        if (msg == WM_LBUTTONDOWN) e.button = MouseButton::Left;
+        else if (msg == WM_RBUTTONDOWN) e.button = MouseButton::Right;
+        else if (msg == WM_MBUTTONDOWN) e.button = MouseButton::Middle;
+        else
+        {
+            const UINT xbtn = GET_XBUTTON_WPARAM(wParam);
+            e.button = (xbtn == XBUTTON1) ? MouseButton::X1 : MouseButton::X2;
+        }
+
+        PushEvent(e);
+        return 0;
+    }
+
+    case WM_LBUTTONUP:
+    case WM_RBUTTONUP:
+    case WM_MBUTTONUP:
+    case WM_XBUTTONUP:
+    {
+        Event e{};
+        e.type = EventType::MouseButtonUp;
+        e.mouseX = (int32_t)GET_X_LPARAM(lParam);
+        e.mouseY = (int32_t)GET_Y_LPARAM(lParam);
+
+        if (msg == WM_LBUTTONUP) e.button = MouseButton::Left;
+        else if (msg == WM_RBUTTONUP) e.button = MouseButton::Right;
+        else if (msg == WM_MBUTTONUP) e.button = MouseButton::Middle;
+        else
+        {
+            const UINT xbtn = GET_XBUTTON_WPARAM(wParam);
+            e.button = (xbtn == XBUTTON1) ? MouseButton::X1 : MouseButton::X2;
+        }
+
+        PushEvent(e);
+        return 0;
+    }
+
+    case WM_MOUSEWHEEL:
+    {
+        Event e{};
+        e.type = EventType::MouseWheel;
+        e.wheelDelta = (int32_t)GET_WHEEL_DELTA_WPARAM(wParam);
+        // Convert screen->client for convenience
+        POINT p{ GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
+        ScreenToClient(mHwnd, &p);
+        e.mouseX = (int32_t)p.x;
+        e.mouseY = (int32_t)p.y;
+        PushEvent(e);
+        return 0;
+    }
+
+    case WM_DPICHANGED:
+    {
+        // When moving between monitors / DPI contexts, Windows provides a suggested
+        // new window rect to keep the client area consistent.
+        const RECT* suggested = (const RECT*)lParam;
+        if (suggested && mHwnd)
+        {
+            SetWindowPos(
+                mHwnd,
+                nullptr,
+                suggested->left,
+                suggested->top,
+                suggested->right - suggested->left,
+                suggested->bottom - suggested->top,
+                SWP_NOZORDER | SWP_NOACTIVATE);
+        }
+
+        UpdateClientSize();
+        if (mClientWidth > 0 && mClientHeight > 0)
+        {
+            Event e{};
+            e.type = EventType::Resize;
+            e.width = mClientWidth;
+            e.height = mClientHeight;
+            PushEvent(e);
+        }
+        return 0;
+    }
+
     case WM_SIZE:
     {
         if (wParam == SIZE_MINIMIZED)

@@ -11,22 +11,32 @@ This file tracks the improvements we identified and whether they’re implemente
 - [x] Handle device removed/reset (recreate D3D device + resources; basic recovery in place)
 
 ## Architecture
-- [ ] Move D3D globals out of main into a RenderDevice class
-- [ ] Split CameraSystem / LightingSystem / RenderSystem into separate compilation units
-- [ ] Add a render graph or at least explicit pass structure
+- [x] Move D3D globals out of main into a RenderDevice class
+- [x] Split CameraSystem / LightingSystem / RenderSystem into separate compilation units
+- [x] Add a render graph or at least explicit pass structure
 
 ## Performance
-- [ ] Switch cube mesh to indexed drawing (IB)
-- [ ] Batch/sort draw calls by pipeline state
-- [ ] Instancing for identical meshes
-- [ ] Replace per-draw Map/Unmap with ring-buffer or structured buffer
+- [x] Switch cube mesh to indexed drawing (IB)
+- [x] Batch/sort draw calls by pipeline state
+- [x] Instancing for identical meshes
+- [x] Replace per-draw Map/Unmap with ring-buffer or structured buffer
 
 ## Features (near-term)
-- [ ] Basic camera controls (WASD + mouse look)
+- [x] Basic camera controls (WASD + mouse look)
 - [ ] Add proper material inputs (roughness/metallic/normal)
-- [ ] Add linear workflow and tonemapping
-- [ ] Shadow mapping (directional)
+- [x] Add linear workflow + HDR and tonemapping
+- [x] Lighting as first-class ECS data (directional/point/spot components)
+- [x] Default "sun" directional light exists by default
+- [x] Multi-light forward rendering path (fixed max lights)
+- [x] Light grouping / light masks (lights affect only selected renderables)
+- [x] Shadow mapping for directional light (single map)
+- [ ] Optional: cascaded shadow maps (2–3 splits)
+- [x] Shadow filtering (PCF) + depth bias tuning
+- [ ] Optional: SSAO
+
+- [x] Frustum culling at entity level (skip invisible objects)
+- [ ] Optional: GPU occlusion culling (Hi-Z / depth pre-pass reuse)
 
 ## Tooling
 - [ ] Shader hot reload
-- [ ] GPU markers for PIX/RenderDoc
+- [x] GPU markers for PIX/RenderDoc

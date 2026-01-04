@@ -194,6 +194,9 @@ King_IS_TOP_LEVEL:STATIC=ON
 //Value Computed by CMake
 King_SOURCE_DIR:STATIC=C:/Users/Samuel Girma/Music/KingEngine
 
+//Disable vcpkg applocal deps
+VCPKG_APPLOCAL_DEPS:BOOL=OFF
+
 
 ########################
 # INTERNAL cache entries

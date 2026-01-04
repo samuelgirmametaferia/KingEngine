@@ -1,49 +1,50 @@
 #include "king_window.h"
 #include "king/ecs/scene.h"
 #include "king/ecs/components.h"
-#include "king/scene/camera.h"
-#include "king/scene/frustum.h"
-#include "king/render/material.h"
-#include "king/render/shader.h"
-#include "king/math/dxmath.h"
-#include <d3d11.h>
-#include <d3dcompiler.h>
-#include <dxgi.h>
+#include "king/systems/camera_system.h"
+#include "king/systems/lighting_system.h"
+#include "king/render/d3d11/render_device_d3d11.h"
+#include "king/render/d3d11/render_system_d3d11.h"
+
+#include <windows.h>
 
 #include <cstdio>
-#include <cstring>
 #include <cstdint>
 #include <string>
 
-#pragma comment(lib, "d3d11.lib")
-#pragma comment(lib, "dxgi.lib")
-#pragma comment(lib, "d3dcompiler.lib")
-
-static ID3D11Device* gDevice = nullptr;
-static ID3D11DeviceContext* gContext = nullptr;
-static IDXGISwapChain* gSwapChain = nullptr;
-static ID3D11RenderTargetView* gRTV = nullptr;
-static ID3D11VertexShader* gVS = nullptr;
-static ID3D11PixelShader* gPS = nullptr;
-static ID3D11InputLayout* gInputLayout = nullptr;
-static ID3D11Buffer* gCameraCB = nullptr;
-static ID3D11Buffer* gLightCB = nullptr;
-static ID3D11Buffer* gObjectCB = nullptr;
-static ID3D11DepthStencilView* gDSV = nullptr;
-static ID3D11DepthStencilState* gDSS = nullptr;
-static ID3D11RasterizerState* gRS = nullptr;
-static D3D11_VIEWPORT gViewport{};
-
-// Renderer-owned backbuffer state and resize queue.
-static UINT gBackBufferW = 0;
-static UINT gBackBufferH = 0;
-static bool gResizeQueued = false;
-static UINT gQueuedW = 0;
-static UINT gQueuedH = 0;
-
-static void SafeRelease(IUnknown* p)
+struct InputState
 {
-    if (p) p->Release();
+    bool keys[256]{};
+    bool hasFocus = true;
+
+    bool rmbDown = false;
+    bool haveMousePos = false;
+    int32_t lastMouseX = 0;
+    int32_t lastMouseY = 0;
+    float mouseDeltaX = 0.0f;
+    float mouseDeltaY = 0.0f;
+};
+
+static float Clamp(float v, float lo, float hi)
+{
+    if (v < lo) return lo;
+    if (v > hi) return hi;
+    return v;
+}
+
+static double NowSeconds()
+{
+    static LARGE_INTEGER freq{};
+    static bool init = false;
+    if (!init)
+    {
+        QueryPerformanceFrequency(&freq);
+        init = true;
+    }
+
+    LARGE_INTEGER c{};
+    QueryPerformanceCounter(&c);
+    return (double)c.QuadPart / (double)freq.QuadPart;
 }
 
 static void SetupDebugConsole()
@@ -65,7 +66,7 @@ static void SetupDebugConsole()
         {
             haveConsole = AllocConsole() != 0;
             if (haveConsole)
-            SetConsoleTitleW(L"King Debug Console");
+                SetConsoleTitleW(L"King Debug Console");
         }
     }
 
@@ -138,185 +139,6 @@ static void LogHResult(const char* what, HRESULT hr)
     std::wprintf(L"%s", w.c_str());
 }
 
-static void CleanupD3D()
-{
-    SafeRelease(gCameraCB);
-    SafeRelease(gLightCB);
-    SafeRelease(gObjectCB);
-    SafeRelease(gDSV);
-    SafeRelease(gDSS);
-    SafeRelease(gRS);
-    SafeRelease(gInputLayout);
-    SafeRelease(gVS);
-    SafeRelease(gPS);
-    SafeRelease(gRTV);
-    SafeRelease(gSwapChain);
-    if (gContext)
-    {
-        gContext->ClearState();
-        gContext->Flush();
-    }
-    SafeRelease(gContext);
-    SafeRelease(gDevice);
-}
-
-static HRESULT CreateRenderTarget()
-{
-    ID3D11Texture2D* backBuffer = nullptr;
-    HRESULT hr = gSwapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), (void**)&backBuffer);
-    if (FAILED(hr)) return hr;
-
-    // Prefer sRGB RTV for correct gamma output (fallback to default if unsupported).
-    D3D11_RENDER_TARGET_VIEW_DESC rtvDesc{};
-    rtvDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
-    rtvDesc.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
-    rtvDesc.Texture2D.MipSlice = 0;
-    hr = gDevice->CreateRenderTargetView(backBuffer, &rtvDesc, &gRTV);
-    if (FAILED(hr))
-        hr = gDevice->CreateRenderTargetView(backBuffer, nullptr, &gRTV);
-    backBuffer->Release();
-    return hr;
-}
-
-static HRESULT CreateDepthTarget(UINT width, UINT height)
-{
-    SafeRelease(gDSV);
-
-    D3D11_TEXTURE2D_DESC td{};
-    td.Width = width;
-    td.Height = height;
-    td.MipLevels = 1;
-    td.ArraySize = 1;
-    td.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
-    td.SampleDesc.Count = 1;
-    td.Usage = D3D11_USAGE_DEFAULT;
-    td.BindFlags = D3D11_BIND_DEPTH_STENCIL;
-
-    ID3D11Texture2D* depthTex = nullptr;
-    HRESULT hr = gDevice->CreateTexture2D(&td, nullptr, &depthTex);
-    if (FAILED(hr))
-    {
-        SafeRelease(depthTex);
-        return hr;
-    }
-
-    hr = gDevice->CreateDepthStencilView(depthTex, nullptr, &gDSV);
-    depthTex->Release();
-    return hr;
-}
-
-static HRESULT Resize(UINT width, UINT height)
-{
-    if (!gSwapChain) return S_OK;
-
-    gBackBufferW = width;
-    gBackBufferH = height;
-
-    if (gContext)
-    {
-        gContext->OMSetRenderTargets(0, nullptr, nullptr);
-    }
-
-    SafeRelease(gRTV);
-
-    SafeRelease(gDSV);
-
-    HRESULT hr = gSwapChain->ResizeBuffers(0, width, height, DXGI_FORMAT_UNKNOWN, 0);
-    if (FAILED(hr)) return hr;
-
-    hr = CreateRenderTarget();
-    if (FAILED(hr)) return hr;
-
-    hr = CreateDepthTarget(width, height);
-    if (FAILED(hr)) return hr;
-
-    gViewport.TopLeftX = 0.0f;
-    gViewport.TopLeftY = 0.0f;
-    gViewport.Width = (float)width;
-    gViewport.Height = (float)height;
-    gViewport.MinDepth = 0.0f;
-    gViewport.MaxDepth = 1.0f;
-
-    return S_OK;
-}
-
-static void QueueResize(UINT width, UINT height)
-{
-    gResizeQueued = true;
-    gQueuedW = width;
-    gQueuedH = height;
-}
-
-static void ApplyQueuedResizeIfAny(king::Scene& scene)
-{
-    if (!gResizeQueued)
-        return;
-
-    gResizeQueued = false;
-    if (gQueuedW == 0 || gQueuedH == 0)
-        return;
-
-    HRESULT hr = Resize(gQueuedW, gQueuedH);
-    if (FAILED(hr))
-    {
-        LogHResult("Resize(from queued)", hr);
-        return;
-    }
-
-    // Update primary camera aspect inside the render-owned resize.
-    for (auto e : scene.reg.cameras.Entities())
-    {
-        auto* cc = scene.reg.cameras.TryGet(e);
-        if (cc && cc->primary)
-        {
-            king::PerspectiveParams p;
-            p.aspect = (gQueuedH > 0) ? ((float)gQueuedW / (float)gQueuedH) : (16.0f / 9.0f);
-            cc->camera.SetPerspective(p);
-            break;
-        }
-    }
-}
-
-static void ReleaseSceneMeshBuffers(king::Scene& scene)
-{
-    for (auto me : scene.reg.meshes.Entities())
-    {
-        auto* m = scene.reg.meshes.TryGet(me);
-        if (m && m->vb)
-        {
-            m->vb->Release();
-            m->vb = nullptr;
-        }
-    }
-}
-
-static bool TryRecoverFromDeviceLost(king::Scene& scene, HWND hwnd)
-{
-    // Drop scene GPU buffers before device teardown.
-    ReleaseSceneMeshBuffers(scene);
-    CleanupD3D();
-
-    // Recreate D3D with last known size.
-    UINT w = gBackBufferW;
-    UINT h = gBackBufferH;
-    if (w == 0 || h == 0)
-    {
-        RECT r{};
-        GetClientRect(hwnd, &r);
-        w = (UINT)((r.right > r.left) ? (r.right - r.left) : 1280);
-        h = (UINT)((r.bottom > r.top) ? (r.bottom - r.top) : 720);
-    }
-
-    HRESULT hr = InitD3D(hwnd, w, h);
-    if (FAILED(hr))
-        return false;
-
-    // Ensure viewport/aspect match the current size.
-    QueueResize(w, h);
-    ApplyQueuedResizeIfAny(scene);
-    return true;
-}
-
 static void EnableDpiAwareness()
 {
     // Avoid extra SDK/lib dependencies: dynamically call user32!SetProcessDpiAwarenessContext if present.
@@ -331,312 +153,6 @@ static void EnableDpiAwareness()
 
     // DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 == (HANDLE)-4
     fn((HANDLE)-4);
-}
-
-struct CameraCBData
-{
-    king::Mat4x4 viewProj;
-};
-
-struct LightCBData
-{
-    float dir[3];
-    float intensity;
-    float color[3];
-    float _pad0;
-};
-
-struct ObjectCBData
-{
-    king::Mat4x4 world;
-    float albedo[4];
-};
-
-static HRESULT InitD3D(HWND hwnd, UINT width, UINT height)
-{
-    DXGI_SWAP_CHAIN_DESC scd{};
-    scd.BufferCount = 2;
-    scd.BufferDesc.Width = width;
-    scd.BufferDesc.Height = height;
-    scd.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-    scd.BufferDesc.RefreshRate.Numerator = 60;
-    scd.BufferDesc.RefreshRate.Denominator = 1;
-    scd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-    scd.OutputWindow = hwnd;
-    scd.SampleDesc.Count = 1;
-    scd.Windowed = TRUE;
-    scd.SwapEffect = DXGI_SWAP_EFFECT_DISCARD;
-
-    UINT createFlags = 0;
-#if defined(_DEBUG)
-    createFlags |= D3D11_CREATE_DEVICE_DEBUG;
-#endif
-
-    // Accept 11.0..10.0 to work on slightly older hardware.
-    D3D_FEATURE_LEVEL featureLevels[] = {
-        D3D_FEATURE_LEVEL_11_1,
-        D3D_FEATURE_LEVEL_11_0,
-        D3D_FEATURE_LEVEL_10_1,
-        D3D_FEATURE_LEVEL_10_0,
-    };
-    D3D_FEATURE_LEVEL featureLevelOut{};
-
-    auto tryCreate = [&](D3D_DRIVER_TYPE driverType, UINT flags) -> HRESULT
-    {
-        return D3D11CreateDeviceAndSwapChain(
-            nullptr,
-            driverType,
-            nullptr,
-            flags,
-            featureLevels,
-            (UINT)(sizeof(featureLevels) / sizeof(featureLevels[0])),
-            D3D11_SDK_VERSION,
-            &scd,
-            &gSwapChain,
-            &gDevice,
-            &featureLevelOut,
-            &gContext
-        );
-    };
-
-    std::printf("InitD3D: creating device/swapchain (%ux%u)\n", width, height);
-
-    HRESULT hr = tryCreate(D3D_DRIVER_TYPE_HARDWARE, createFlags);
-    if (FAILED(hr))
-    {
-        LogHResult("D3D11CreateDeviceAndSwapChain(HARDWARE)", hr);
-
-#if defined(_DEBUG)
-        // Common failure: debug layer not installed. Retry without debug.
-        if (createFlags & D3D11_CREATE_DEVICE_DEBUG)
-        {
-            std::printf("Retrying without D3D11 debug layer...\n");
-            hr = tryCreate(D3D_DRIVER_TYPE_HARDWARE, createFlags & ~D3D11_CREATE_DEVICE_DEBUG);
-            if (FAILED(hr))
-            {
-                LogHResult("D3D11CreateDeviceAndSwapChain(HARDWARE, no-debug)", hr);
-            }
-        }
-#endif
-
-        if (FAILED(hr))
-        {
-            std::printf("Retrying with WARP software device...\n");
-            hr = tryCreate(D3D_DRIVER_TYPE_WARP, 0);
-            if (FAILED(hr))
-            {
-                LogHResult("D3D11CreateDeviceAndSwapChain(WARP)", hr);
-                return hr;
-            }
-        }
-    }
-
-    std::printf("D3D device created. Feature level: 0x%X\n", (unsigned)featureLevelOut);
-
-    hr = CreateRenderTarget();
-    if (FAILED(hr))
-    {
-        LogHResult("CreateRenderTarget", hr);
-        return hr;
-    }
-
-    hr = Resize(width, height);
-    if (FAILED(hr))
-    {
-        LogHResult("Resize", hr);
-        return hr;
-    }
-
-    // --- King shader system: compile + cache + reflection ---
-    king::ShaderCache shaderCache(gDevice);
-    king::CompiledShader vs;
-    king::CompiledShader ps;
-    std::string shaderErr;
-
-    // Resolve shader path relative to the exe: build/Debug/King.exe -> ../../assets/...
-    std::wstring shaderPath = JoinPath(GetExeDirectory(), L"..\\..\\assets\\shaders\\pbr_test.hlsl");
-    if (!shaderCache.CompileVSFromFile(shaderPath.c_str(), "VSMain", {}, vs, &shaderErr))
-    {
-        std::printf("Shader VS compile error:\n%s\n", shaderErr.c_str());
-        return E_FAIL;
-    }
-
-    if (!shaderCache.CompilePSFromFile(shaderPath.c_str(), "PSMain", {}, ps, &shaderErr))
-    {
-        std::printf("Shader PS compile error:\n%s\n", shaderErr.c_str());
-        return E_FAIL;
-    }
-
-    std::printf("VS reflection: %zu resources, %zu cbuffers\n", vs.reflection.resources.size(), vs.reflection.cbuffers.size());
-    for (const auto& r : vs.reflection.resources)
-        std::printf("  res: %s type=%u slot=%u count=%u\n", r.name.c_str(), (unsigned)r.type, r.bindPoint, r.bindCount);
-    for (const auto& cb : vs.reflection.cbuffers)
-        std::printf("  cbuf: %s slot=%u size=%u\n", cb.name.c_str(), cb.bindPoint, cb.sizeBytes);
-
-    std::printf("PS reflection: %zu resources, %zu cbuffers\n", ps.reflection.resources.size(), ps.reflection.cbuffers.size());
-    for (const auto& r : ps.reflection.resources)
-        std::printf("  res: %s type=%u slot=%u count=%u\n", r.name.c_str(), (unsigned)r.type, r.bindPoint, r.bindCount);
-    for (const auto& cb : ps.reflection.cbuffers)
-        std::printf("  cbuf: %s slot=%u size=%u\n", cb.name.c_str(), cb.bindPoint, cb.sizeBytes);
-
-    hr = gDevice->CreateVertexShader(vs.bytecode->GetBufferPointer(), vs.bytecode->GetBufferSize(), nullptr, &gVS);
-    if (FAILED(hr))
-    {
-        LogHResult("CreateVertexShader", hr);
-        return hr;
-    }
-
-    hr = gDevice->CreatePixelShader(ps.bytecode->GetBufferPointer(), ps.bytecode->GetBufferSize(), nullptr, &gPS);
-    if (FAILED(hr))
-    {
-        LogHResult("CreatePixelShader", hr);
-        return hr;
-    }
-
-    D3D11_INPUT_ELEMENT_DESC layout[] = {
-        { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0 },
-        { "NORMAL",   0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 12, D3D11_INPUT_PER_VERTEX_DATA, 0 },
-    };
-
-    hr = gDevice->CreateInputLayout(
-        layout,
-        (UINT)(sizeof(layout) / sizeof(layout[0])),
-        vs.bytecode->GetBufferPointer(),
-        vs.bytecode->GetBufferSize(),
-        &gInputLayout
-    );
-    if (FAILED(hr))
-    {
-        LogHResult("CreateInputLayout", hr);
-        return hr;
-    }
-
-    // Camera constant buffer (b0)
-    D3D11_BUFFER_DESC cbd{};
-    cbd.Usage = D3D11_USAGE_DYNAMIC;
-    cbd.ByteWidth = 64; // float4x4
-    cbd.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
-    cbd.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
-    hr = gDevice->CreateBuffer(&cbd, nullptr, &gCameraCB);
-    if (FAILED(hr))
-    {
-        LogHResult("CreateBuffer(CameraCB)", hr);
-        return hr;
-    }
-
-    // Light constant buffer (b1)
-    cbd.ByteWidth = sizeof(LightCBData);
-    hr = gDevice->CreateBuffer(&cbd, nullptr, &gLightCB);
-    if (FAILED(hr))
-    {
-        LogHResult("CreateBuffer(LightCB)", hr);
-        return hr;
-    }
-
-    // Object constant buffer (b2)
-    cbd.ByteWidth = sizeof(ObjectCBData);
-    hr = gDevice->CreateBuffer(&cbd, nullptr, &gObjectCB);
-    if (FAILED(hr))
-    {
-        LogHResult("CreateBuffer(ObjectCB)", hr);
-        return hr;
-    }
-
-    // Depth testing state
-    D3D11_DEPTH_STENCIL_DESC dsd{};
-    dsd.DepthEnable = TRUE;
-    dsd.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ALL;
-    dsd.DepthFunc = D3D11_COMPARISON_LESS_EQUAL;
-    dsd.StencilEnable = FALSE;
-    hr = gDevice->CreateDepthStencilState(&dsd, &gDSS);
-    if (FAILED(hr))
-    {
-        LogHResult("CreateDepthStencilState", hr);
-        return hr;
-    }
-
-    // Rasterizer state: disable culling for now (avoids winding issues while iterating quickly).
-    D3D11_RASTERIZER_DESC rs{};
-    rs.FillMode = D3D11_FILL_SOLID;
-    rs.CullMode = D3D11_CULL_NONE;
-    rs.DepthClipEnable = TRUE;
-    hr = gDevice->CreateRasterizerState(&rs, &gRS);
-    if (FAILED(hr))
-    {
-        LogHResult("CreateRasterizerState", hr);
-        return hr;
-    }
-
-    return S_OK;
-}
-
-static void UpdateCameraCB(const king::Mat4x4& viewProj)
-{
-    D3D11_MAPPED_SUBRESOURCE mapped{};
-    if (SUCCEEDED(gContext->Map(gCameraCB, 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped)))
-    {
-        std::memcpy(mapped.pData, viewProj.m, 64);
-        gContext->Unmap(gCameraCB, 0);
-    }
-}
-
-static void UpdateLightCB(const king::Light& light)
-{
-    LightCBData data{};
-    data.dir[0] = light.direction.x;
-    data.dir[1] = light.direction.y;
-    data.dir[2] = light.direction.z;
-    data.intensity = light.intensity;
-    data.color[0] = light.color.x;
-    data.color[1] = light.color.y;
-    data.color[2] = light.color.z;
-
-    D3D11_MAPPED_SUBRESOURCE mapped{};
-    if (SUCCEEDED(gContext->Map(gLightCB, 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped)))
-    {
-        std::memcpy(mapped.pData, &data, sizeof(data));
-        gContext->Unmap(gLightCB, 0);
-    }
-}
-
-static void UpdateObjectCB(const king::Mat4x4& world, const king::PbrMaterial& mat)
-{
-    ObjectCBData data{};
-    data.world = world;
-    data.albedo[0] = mat.albedo.x;
-    data.albedo[1] = mat.albedo.y;
-    data.albedo[2] = mat.albedo.z;
-    data.albedo[3] = mat.albedo.w;
-
-    D3D11_MAPPED_SUBRESOURCE mapped{};
-    if (SUCCEEDED(gContext->Map(gObjectCB, 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped)))
-    {
-        std::memcpy(mapped.pData, &data, sizeof(data));
-        gContext->Unmap(gObjectCB, 0);
-    }
-}
-
-static king::Mat4x4 TransformToWorld(const king::Transform& t)
-{
-    using namespace DirectX;
-    const XMVECTOR q = XMVectorSet(t.rotation.x, t.rotation.y, t.rotation.z, t.rotation.w);
-    XMMATRIX S = XMMatrixScaling(t.scale.x, t.scale.y, t.scale.z);
-    XMMATRIX R = XMMatrixRotationQuaternion(q);
-    XMMATRIX T = XMMatrixTranslation(t.position.x, t.position.y, t.position.z);
-    XMMATRIX W = S * R * T;
-    return king::dx::StoreMat4x4(W);
-}
-
-static HRESULT CreateVertexBuffer(const std::vector<king::VertexPN>& verts, ID3D11Buffer** outVB)
-{
-    D3D11_BUFFER_DESC bd{};
-    bd.Usage = D3D11_USAGE_IMMUTABLE;
-    bd.ByteWidth = (UINT)(verts.size() * sizeof(king::VertexPN));
-    bd.BindFlags = D3D11_BIND_VERTEX_BUFFER;
-
-    D3D11_SUBRESOURCE_DATA init{};
-    init.pSysMem = verts.data();
-    return gDevice->CreateBuffer(&bd, &init, outVB);
 }
 
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int nCmdShow)
@@ -683,7 +199,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int nCmdShow)
         cc.camera.SetPosition(t.position);
     }
 
-    // Directional light entity (stub for now)
+    // Directional light entity ("sun")
     king::Entity lightEnt = scene.reg.CreateEntity();
     {
         scene.reg.transforms.Emplace(lightEnt);
@@ -692,7 +208,11 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int nCmdShow)
         l.color = { 1, 1, 1 };
         l.intensity = 2.0f;
         l.direction = { 0.35f, -1.0f, 0.25f };
+        l.castsShadows = true;
     }
+
+    // If the scene ever starts without a light, keep one around.
+    king::systems::LightingSystem::EnsureDefaultSun(scene);
 
     auto makeCubeMesh = [&](float halfExtents) -> king::Entity
     {
@@ -700,29 +220,32 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int nCmdShow)
         king::Entity me = scene.reg.CreateEntity();
         auto& m = scene.reg.meshes.Emplace(me);
 
-        // 36 verts (6 faces * 2 tris * 3 verts), per-face normals.
-        auto pushFace = [&](king::Float3 n, king::Float3 a, king::Float3 b, king::Float3 c, king::Float3 d)
-        {
-            m.vertices.push_back({ a.x, a.y, a.z, n.x, n.y, n.z });
-            m.vertices.push_back({ b.x, b.y, b.z, n.x, n.y, n.z });
-            m.vertices.push_back({ c.x, c.y, c.z, n.x, n.y, n.z });
-            m.vertices.push_back({ a.x, a.y, a.z, n.x, n.y, n.z });
-            m.vertices.push_back({ c.x, c.y, c.z, n.x, n.y, n.z });
-            m.vertices.push_back({ d.x, d.y, d.z, n.x, n.y, n.z });
+        // Indexed cube: 24 verts (4 per face), 36 indices.
+        const king::VertexPN v[] = {
+            // +X
+            { h,-h,-h,  1,0,0 }, { h,-h, h,  1,0,0 }, { h, h, h,  1,0,0 }, { h, h,-h,  1,0,0 },
+            // -X
+            {-h,-h, h, -1,0,0 }, {-h,-h,-h, -1,0,0 }, {-h, h,-h, -1,0,0 }, {-h, h, h, -1,0,0 },
+            // +Y
+            {-h, h,-h,  0,1,0 }, { h, h,-h,  0,1,0 }, { h, h, h,  0,1,0 }, {-h, h, h,  0,1,0 },
+            // -Y
+            {-h,-h, h,  0,-1,0}, { h,-h, h,  0,-1,0}, { h,-h,-h,  0,-1,0}, {-h,-h,-h,  0,-1,0},
+            // +Z
+            { h,-h, h,  0,0,1 }, {-h,-h, h,  0,0,1 }, {-h, h, h,  0,0,1 }, { h, h, h,  0,0,1 },
+            // -Z
+            {-h,-h,-h,  0,0,-1}, { h,-h,-h,  0,0,-1}, { h, h,-h,  0,0,-1}, {-h, h,-h,  0,0,-1},
         };
+        m.vertices.assign(std::begin(v), std::end(v));
 
-        // +X
-        pushFace({ 1,0,0 }, { h,-h,-h }, { h,-h, h }, { h, h, h }, { h, h,-h });
-        // -X
-        pushFace({-1,0,0 }, {-h,-h, h }, {-h,-h,-h }, {-h, h,-h }, {-h, h, h });
-        // +Y
-        pushFace({ 0,1,0 }, {-h, h,-h }, { h, h,-h }, { h, h, h }, {-h, h, h });
-        // -Y
-        pushFace({ 0,-1,0}, {-h,-h, h }, { h,-h, h }, { h,-h,-h }, {-h,-h,-h });
-        // +Z
-        pushFace({ 0,0,1 }, { h,-h, h }, {-h,-h, h }, {-h, h, h }, { h, h, h });
-        // -Z
-        pushFace({ 0,0,-1}, {-h,-h,-h }, { h,-h,-h }, { h, h,-h }, {-h, h,-h });
+        const uint16_t idx[] = {
+            0,1,2, 0,2,3,
+            4,5,6, 4,6,7,
+            8,9,10, 8,10,11,
+            12,13,14, 12,14,15,
+            16,17,18, 16,18,19,
+            20,21,22, 20,22,23
+        };
+        m.indices.assign(std::begin(idx), std::end(idx));
 
         m.boundsCenter = { 0, 0, 0 };
         m.boundsRadius = halfExtents * 1.8f;
@@ -760,35 +283,118 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int nCmdShow)
     addBox({  0.0f, 0.0f, 2.0f }, { 1.0f, 2.0f, 1.0f }, { 0.2f, 0.6f, 0.9f, 1.0f });
     addBox({  2.0f, 0.0f, 0.0f }, { 1.0f, 1.0f, 2.0f }, { 0.9f, 0.85f, 0.2f, 1.0f });
 
-    // Camera/frustum for culling foundation
-    king::Frustum frustum{};
-
-    if (FAILED(InitD3D(window.Handle(), width, height)))
+    king::render::d3d11::RenderDeviceD3D11 device;
+    HRESULT initHr = device.Initialize(window.Handle(), width, height);
+    if (FAILED(initHr))
     {
-        CleanupD3D();
-        std::printf("Failed to initialize D3D11. See messages above.\n");
+        LogHResult("RenderDeviceD3D11::Initialize", initHr);
+        std::printf("Failed to initialize D3D11 device.\n");
         MessageBoxW(window.Handle(), L"Failed to initialize D3D11. Check the debug output for details.", L"Error", MB_ICONERROR);
-        std::printf("Press Enter to exit...\n");
-        (void)getchar();
         return 1;
     }
 
-    // Seed render-owned resize path.
-    QueueResize(width, height);
+    // Render system (D3D11)
+    const std::wstring shaderPath = JoinPath(GetExeDirectory(), L"..\\..\\assets\\shaders\\pbr_test.hlsl");
+    king::render::d3d11::RenderSystemD3D11 renderSystem;
+    if (!renderSystem.Initialize(device, shaderPath))
+    {
+        std::printf("Failed to initialize render system.\n");
+        MessageBoxW(window.Handle(), L"Failed to initialize render system.", L"Error", MB_ICONERROR);
+        return 1;
+    }
+
+    device.QueueResize(width, height);
+
+    king::Frustum frustum{};
+    king::Mat4x4 viewProj{};
+
+    InputState input;
+    double lastT = NowSeconds();
 
     king::Window::Event ev{};
     while (window.PumpMessages())
     {
+        const double now = NowSeconds();
+        float dt = (float)(now - lastT);
+        lastT = now;
+        if (dt < 0.0f) dt = 0.0f;
+        if (dt > 0.1f) dt = 0.1f;
+
+        input.mouseDeltaX = 0.0f;
+        input.mouseDeltaY = 0.0f;
+
         while (window.PollEvent(ev))
         {
             if (ev.type == king::Window::EventType::Resize)
             {
                 if (ev.width > 0 && ev.height > 0)
-                    QueueResize((UINT)ev.width, (UINT)ev.height);
+                    device.QueueResize((uint32_t)ev.width, (uint32_t)ev.height);
             }
             else if (ev.type == king::Window::EventType::CloseRequested)
             {
                 std::printf("Close requested.\n");
+            }
+            else if (ev.type == king::Window::EventType::FocusGained)
+            {
+                input.hasFocus = true;
+                input.haveMousePos = false;
+            }
+            else if (ev.type == king::Window::EventType::FocusLost)
+            {
+                input.hasFocus = false;
+                input.rmbDown = false;
+                input.haveMousePos = false;
+                std::memset(input.keys, 0, sizeof(input.keys));
+            }
+            else if (ev.type == king::Window::EventType::KeyDown)
+            {
+                if (ev.key < 256)
+                    input.keys[ev.key] = true;
+            }
+            else if (ev.type == king::Window::EventType::KeyUp)
+            {
+                if (ev.key < 256)
+                    input.keys[ev.key] = false;
+            }
+            else if (ev.type == king::Window::EventType::MouseButtonDown)
+            {
+                if (ev.button == king::Window::MouseButton::Right)
+                {
+                    input.rmbDown = true;
+                    input.haveMousePos = false;
+                    SetCapture(window.Handle());
+                }
+            }
+            else if (ev.type == king::Window::EventType::MouseButtonUp)
+            {
+                if (ev.button == king::Window::MouseButton::Right)
+                {
+                    input.rmbDown = false;
+                    input.haveMousePos = false;
+                    ReleaseCapture();
+                }
+            }
+            else if (ev.type == king::Window::EventType::MouseMove)
+            {
+                if (!input.haveMousePos)
+                {
+                    input.lastMouseX = ev.mouseX;
+                    input.lastMouseY = ev.mouseY;
+                    input.haveMousePos = true;
+                }
+                else
+                {
+                    const int32_t dx = ev.mouseX - input.lastMouseX;
+                    const int32_t dy = ev.mouseY - input.lastMouseY;
+                    input.lastMouseX = ev.mouseX;
+                    input.lastMouseY = ev.mouseY;
+
+                    if (input.rmbDown)
+                    {
+                        input.mouseDeltaX += (float)dx;
+                        input.mouseDeltaY += (float)dy;
+                    }
+                }
             }
         }
 
@@ -799,113 +405,77 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int nCmdShow)
             continue;
         }
 
-        // Apply queued resize at a stable point owned by the renderer.
-        ApplyQueuedResizeIfAny(scene);
+        // Pass 0: apply renderer-owned resize and notify systems.
+        uint32_t newW = 0, newH = 0;
+        if (device.ApplyQueuedResize(&newW, &newH))
+        {
+            const float aspect = (newH > 0) ? ((float)newW / (float)newH) : (16.0f / 9.0f);
+            king::systems::CameraSystem::OnResize(scene, aspect);
+        }
 
-        // CameraSystem (very small): sync camera position from Transform.
-        king::Mat4x4 viewProj{};
+        // Pass 1: update simulation systems.
+        // Camera controls: RMB + mouse look, WASD/QE movement.
+        king::Float3 primaryCamPos{ 0, 0, 0 };
         for (auto e : scene.reg.cameras.Entities())
         {
             auto* cc = scene.reg.cameras.TryGet(e);
             auto* t = scene.reg.transforms.TryGet(e);
-            if (!cc || !t || !cc->primary) continue;
-            cc->camera.SetPosition(t->position);
-            viewProj = cc->camera.ViewProjectionMatrix();
-            frustum = king::Frustum::FromViewProjection(viewProj);
-            break;
-        }
-        UpdateCameraCB(viewProj);
-
-        // LightingSystem (minimal): take first directional light.
-        king::Light light{};
-        bool haveLight = false;
-        for (auto e : scene.reg.lights.Entities())
-        {
-            auto* l = scene.reg.lights.TryGet(e);
-            if (l && l->type == king::LightType::Directional)
-            {
-                light = *l;
-                haveLight = true;
-                break;
-            }
-        }
-        if (haveLight)
-            UpdateLightCB(light);
-
-        // RenderSystem: render ECS MeshRenderer entities.
-        const float clearColor[4] = { 0.06f, 0.06f, 0.08f, 1.0f };
-        gContext->ClearRenderTargetView(gRTV, clearColor);
-        gContext->ClearDepthStencilView(gDSV, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
-        gContext->OMSetRenderTargets(1, &gRTV, gDSV);
-        gContext->OMSetDepthStencilState(gDSS, 0);
-        gContext->RSSetState(gRS);
-        gContext->RSSetViewports(1, &gViewport);
-
-        gContext->IASetInputLayout(gInputLayout);
-        gContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-
-        gContext->VSSetShader(gVS, nullptr, 0);
-        gContext->PSSetShader(gPS, nullptr, 0);
-
-        gContext->VSSetConstantBuffers(0, 1, &gCameraCB);
-        gContext->PSSetConstantBuffers(1, 1, &gLightCB);
-        gContext->VSSetConstantBuffers(2, 1, &gObjectCB);
-        gContext->PSSetConstantBuffers(2, 1, &gObjectCB);
-
-        // Ensure mesh VBs exist
-        for (auto me : scene.reg.meshes.Entities())
-        {
-            auto* m = scene.reg.meshes.TryGet(me);
-            if (!m || m->vb) continue;
-            HRESULT hr = CreateVertexBuffer(m->vertices, &m->vb);
-            if (FAILED(hr))
-                LogHResult("CreateVertexBuffer(mesh)", hr);
-        }
-
-        // Draw renderables
-        for (auto e : scene.reg.renderers.Entities())
-        {
-            auto* r = scene.reg.renderers.TryGet(e);
-            auto* t = scene.reg.transforms.TryGet(e);
-            if (!r || !t) continue;
-
-            auto* m = scene.reg.meshes.TryGet(r->mesh);
-            if (!m || !m->vb) continue;
-
-            // Frustum culling (sphere)
-            king::Sphere s{};
-            s.center = { t->position.x + m->boundsCenter.x, t->position.y + m->boundsCenter.y, t->position.z + m->boundsCenter.z };
-            const float sx = t->scale.x;
-            const float sy = t->scale.y;
-            const float sz = t->scale.z;
-            const float maxScale = (sx > sy) ? ((sx > sz) ? sx : sz) : ((sy > sz) ? sy : sz);
-            s.radius = m->boundsRadius * maxScale;
-            if (!frustum.Intersects(s))
+            if (!cc || !t || !cc->primary)
                 continue;
 
-            king::Mat4x4 world = TransformToWorld(*t);
-            UpdateObjectCB(world, r->material);
+            // Mouse look only while RMB held.
+            if (input.hasFocus && input.rmbDown)
+            {
+                const float sens = 0.0025f;
+                const float yaw = input.mouseDeltaX * sens;
+                const float pitch = input.mouseDeltaY * sens;
+                cc->camera.RotateYawPitchRoll(yaw, pitch, 0.0f);
+            }
 
-            UINT stride = sizeof(king::VertexPN);
-            UINT offset = 0;
-            gContext->IASetVertexBuffers(0, 1, &m->vb, &stride, &offset);
-            gContext->Draw((UINT)m->vertices.size(), 0);
+            king::Float3 move{};
+            const float speed = (input.keys[VK_SHIFT] ? 10.0f : 4.0f);
+            if (input.keys['W']) move.z += speed * dt;
+            if (input.keys['S']) move.z -= speed * dt;
+            if (input.keys['D']) move.x += speed * dt;
+            if (input.keys['A']) move.x -= speed * dt;
+            if (input.keys['E']) move.y += speed * dt;
+            if (input.keys['Q']) move.y -= speed * dt;
+
+            if (move.x != 0.0f || move.y != 0.0f || move.z != 0.0f)
+                cc->camera.TranslateLocal(move);
+
+            // Keep transform in sync with camera for now.
+            t->position = cc->camera.Position();
+            primaryCamPos = t->position;
+            break;
         }
 
-        HRESULT phr = gSwapChain->Present(1, 0);
+        (void)king::systems::CameraSystem::UpdatePrimaryCamera(scene, frustum, viewProj);
+
+        // Pass 2: render passes.
+        const float clearColor[4] = { 0.06f, 0.06f, 0.08f, 1.0f };
+        device.BeginFrame(clearColor);
+        renderSystem.RenderGeometryPass(device, scene, frustum, viewProj, primaryCamPos, 1.0f);
+
+        HRESULT phr = device.Present(1);
         if (FAILED(phr))
         {
-            if (phr == DXGI_ERROR_DEVICE_REMOVED || phr == DXGI_ERROR_DEVICE_RESET)
+            if (device.IsDeviceLost(phr))
             {
-                HRESULT reason = gDevice ? gDevice->GetDeviceRemovedReason() : phr;
                 LogHResult("Present(device lost)", phr);
-                LogHResult("DeviceRemovedReason", reason);
+                LogHResult("DeviceRemovedReason", device.GetDeviceRemovedReason());
 
-                if (!TryRecoverFromDeviceLost(scene, window.Handle()))
+                king::render::d3d11::RenderSystemD3D11::ReleaseSceneMeshBuffers(scene);
+                if (!device.RecoverFromDeviceLost(window.Handle()) || !renderSystem.OnDeviceReset(device))
                 {
                     std::printf("Failed to recover from device lost. Exiting.\n");
                     break;
                 }
+
+                // Re-seed resize after device reset.
+                RECT r{};
+                GetClientRect(window.Handle(), &r);
+                device.QueueResize((uint32_t)(r.right - r.left), (uint32_t)(r.bottom - r.top));
             }
             else
             {
@@ -914,9 +484,8 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int nCmdShow)
         }
     }
 
-    // Release mesh vertex buffers
-    ReleaseSceneMeshBuffers(scene);
-
-    CleanupD3D();
+    king::render::d3d11::RenderSystemD3D11::ReleaseSceneMeshBuffers(scene);
+    renderSystem.Shutdown();
+    device.Shutdown();
     return 0;
 }

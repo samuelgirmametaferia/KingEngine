@@ -26,6 +26,24 @@ public:
         None = 0,
         Resize,
         CloseRequested,
+
+        KeyDown,
+        KeyUp,
+        MouseMove,
+        MouseButtonDown,
+        MouseButtonUp,
+        MouseWheel,
+        FocusGained,
+        FocusLost,
+    };
+
+    enum class MouseButton : uint8_t
+    {
+        Left = 0,
+        Right,
+        Middle,
+        X1,
+        X2,
     };
 
     struct Event
@@ -33,6 +51,16 @@ public:
         EventType type = EventType::None;
         uint32_t width = 0;
         uint32_t height = 0;
+
+        // Keyboard
+        uint32_t key = 0; // virtual-key code
+        bool repeat = false;
+
+        // Mouse
+        int32_t mouseX = 0;
+        int32_t mouseY = 0;
+        int32_t wheelDelta = 0; // positive away from user
+        MouseButton button = MouseButton::Left;
     };
 
     struct Desc

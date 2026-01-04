@@ -7,6 +7,18 @@
     <ClCompile Include="C:\Users\Samuel Girma\Music\KingEngine\src\king_window.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="C:\Users\Samuel Girma\Music\KingEngine\src\king\render\d3d11\render_device_d3d11.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\Samuel Girma\Music\KingEngine\src\king\render\d3d11\render_system_d3d11.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\Samuel Girma\Music\KingEngine\src\king\systems\camera_system.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\Samuel Girma\Music\KingEngine\src\king\systems\lighting_system.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="C:\Users\Samuel Girma\Music\KingEngine\src\king\scene\camera.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
