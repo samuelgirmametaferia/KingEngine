@@ -1,0 +1,10 @@
+^C:\USERS\SAMUEL GIRMA\MUSIC\KINGENGINE\BUILD\CMAKEFILES\DDFFF208A24874C6FC2B3CF5E0E8B7BA\GENERATE.STAMP.RULE
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" "-SC:/Users/Samuel Girma/Music/KingEngine" "-BC:/Users/Samuel Girma/Music/KingEngine/build" --check-stamp-list CMakeFiles/generate.stamp.list --vs-solution-file "C:/Users/Samuel Girma/Music/KingEngine/build/King.sln"
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd

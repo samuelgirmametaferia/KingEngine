@@ -1,0 +1,3 @@
+C:/Users/Samuel Girma/Music/KingEngine/build/CMakeFiles/King.dir
+C:/Users/Samuel Girma/Music/KingEngine/build/CMakeFiles/ALL_BUILD.dir
+C:/Users/Samuel Girma/Music/KingEngine/build/CMakeFiles/ZERO_CHECK.dir
