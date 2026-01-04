@@ -6,5 +6,6 @@ C:\Users\Samuel Girma\Music\KingEngine\src\king\systems\camera_system.cpp;C:\Use
 C:\Users\Samuel Girma\Music\KingEngine\src\king\systems\lighting_system.cpp;C:\Users\Samuel Girma\Music\KingEngine\build\King.dir\Debug\lighting_system.obj
 C:\Users\Samuel Girma\Music\KingEngine\src\king\scene\camera.cpp;C:\Users\Samuel Girma\Music\KingEngine\build\King.dir\Debug\camera.obj
 C:\Users\Samuel Girma\Music\KingEngine\src\king\scene\frustum.cpp;C:\Users\Samuel Girma\Music\KingEngine\build\King.dir\Debug\frustum.obj
+C:\Users\Samuel Girma\Music\KingEngine\src\king\time\time.cpp;C:\Users\Samuel Girma\Music\KingEngine\build\King.dir\Debug\time.obj
 C:\Users\Samuel Girma\Music\KingEngine\src\king\render\material.cpp;C:\Users\Samuel Girma\Music\KingEngine\build\King.dir\Debug\material.obj
 C:\Users\Samuel Girma\Music\KingEngine\src\king\render\shader.cpp;C:\Users\Samuel Girma\Music\KingEngine\build\King.dir\Debug\shader.obj

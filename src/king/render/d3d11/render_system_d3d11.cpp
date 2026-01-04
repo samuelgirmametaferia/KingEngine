@@ -695,7 +695,7 @@ void RenderSystemD3D11::EnsureShadowResources(RenderDeviceD3D11& device)
     // Depth bias tuning is scene-dependent; start with conservative values.
     D3D11_RASTERIZER_DESC rs{};
     rs.FillMode = D3D11_FILL_SOLID;
-    rs.CullMode = D3D11_CULL_BACK;
+    rs.CullMode = D3D11_CULL_NONE;
     rs.DepthClipEnable = TRUE;
     rs.DepthBias = 1500;
     rs.SlopeScaledDepthBias = 2.0f;
@@ -846,8 +846,8 @@ void RenderSystemD3D11::RenderGeometryPass(
 
     // Unbind potentially-hazardous SRVs before using them as render targets/DSVs.
     {
-        ID3D11ShaderResourceView* nullSrvs[1] = { nullptr };
-        ctx->PSSetShaderResources(0, 1, nullSrvs);
+        ID3D11ShaderResourceView* nullSrvs[2] = { nullptr, nullptr };
+        ctx->PSSetShaderResources(0, 2, nullSrvs);
     }
 
     device.BeginGpuEvent(L"GeometryPass");
@@ -873,6 +873,12 @@ void RenderSystemD3D11::RenderGeometryPass(
 
     if (frame.instances.empty() || frame.batches.empty())
     {
+        static bool once = false;
+        if (!once)
+        {
+            once = true;
+            std::printf("RenderGeometryPass: no visible instances (instances=%zu batches=%zu)\n", frame.instances.size(), frame.batches.size());
+        }
         device.EndGpuEvent();
         return;
     }
@@ -897,6 +903,21 @@ void RenderSystemD3D11::RenderGeometryPass(
     Transform sunXform{};
     const bool haveSun = GetPrimaryDirectionalLightWithTransform(scene, sun, sunXform);
     const bool doShadows = haveSun && sun.castsShadows && mShadowDSV && mShadowSRV && mVSShadow;
+
+    static bool once = false;
+    if (!once)
+    {
+        once = true;
+        std::printf(
+            "RenderGeometryPass: instances=%zu batches=%zu lights=%zu hdr=%s shadows=%s deferredContexts=%zu tonemap=%s\n",
+            frame.instances.size(),
+            frame.batches.size(),
+            lights.size(),
+            (mHdrRTV && mHdrSRV) ? "yes" : "no",
+            doShadows ? "yes" : "no",
+            mDeferredContexts.size(),
+            (mHdrSRV && device.RTV() && mVSTonemap && mPSTonemap) ? "yes" : "no");
+    }
 
     Mat4x4 lightViewProj{};
     if (doShadows)
@@ -1104,6 +1125,7 @@ void RenderSystemD3D11::RenderGeometryPass(
 
     // Parallel draw submission using deferred contexts + command lists.
     // Note: all resource updates are done on the immediate context above.
+    bool usedDeferred = false;
     if (!mDeferredContexts.empty())
     {
         const size_t totalBatches = frame.batches.size();
@@ -1205,29 +1227,31 @@ void RenderSystemD3D11::RenderGeometryPass(
             }
         }
 
-        device.EndGpuEvent();
-        return;
+        usedDeferred = true;
     }
 
     // Fallback: immediate submission (single-threaded draw calls).
-    for (const Batch& b : frame.batches)
+    if (!usedDeferred)
     {
-        if (!b.mesh || !b.mesh->vb)
-            continue;
-
-        ID3D11Buffer* vbs[2] = { b.mesh->vb, mInstanceVB };
-        UINT strides[2] = { (UINT)sizeof(VertexPN), (UINT)sizeof(InstanceData) };
-        UINT offsets[2] = { 0u, 0u };
-        ctx->IASetVertexBuffers(0, 2, vbs, strides, offsets);
-
-        if (b.mesh->ib && !b.mesh->indices.empty())
+        for (const Batch& b : frame.batches)
         {
-            ctx->IASetIndexBuffer(b.mesh->ib, DXGI_FORMAT_R16_UINT, 0);
-            ctx->DrawIndexedInstanced((UINT)b.mesh->indices.size(), b.instanceCount, 0, 0, b.startInstance);
-        }
-        else
-        {
-            ctx->DrawInstanced((UINT)b.mesh->vertices.size(), b.instanceCount, 0, b.startInstance);
+            if (!b.mesh || !b.mesh->vb)
+                continue;
+
+            ID3D11Buffer* vbs[2] = { b.mesh->vb, mInstanceVB };
+            UINT strides[2] = { (UINT)sizeof(VertexPN), (UINT)sizeof(InstanceData) };
+            UINT offsets[2] = { 0u, 0u };
+            ctx->IASetVertexBuffers(0, 2, vbs, strides, offsets);
+
+            if (b.mesh->ib && !b.mesh->indices.empty())
+            {
+                ctx->IASetIndexBuffer(b.mesh->ib, DXGI_FORMAT_R16_UINT, 0);
+                ctx->DrawIndexedInstanced((UINT)b.mesh->indices.size(), b.instanceCount, 0, 0, b.startInstance);
+            }
+            else
+            {
+                ctx->DrawInstanced((UINT)b.mesh->vertices.size(), b.instanceCount, 0, b.startInstance);
+            }
         }
     }
 
@@ -1237,6 +1261,13 @@ void RenderSystemD3D11::RenderGeometryPass(
     if (mHdrSRV && device.RTV() && mVSTonemap && mPSTonemap)
     {
         device.BeginGpuEvent(L"TonemapPass");
+
+        static bool onceTonemap = false;
+        if (!onceTonemap)
+        {
+            onceTonemap = true;
+            std::printf("TonemapPass: executing\n");
+        }
 
         ID3D11RenderTargetView* outRtv = device.RTV();
         ctx->OMSetRenderTargets(1, &outRtv, nullptr);

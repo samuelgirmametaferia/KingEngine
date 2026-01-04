@@ -5,11 +5,14 @@
 #include "king/systems/lighting_system.h"
 #include "king/render/d3d11/render_device_d3d11.h"
 #include "king/render/d3d11/render_system_d3d11.h"
+#include "king/time/time.h"
 
 #include <windows.h>
 
 #include <cstdio>
 #include <cstdint>
+#include <array>
+#include <cmath>
 #include <string>
 
 struct InputState
@@ -24,28 +27,6 @@ struct InputState
     float mouseDeltaX = 0.0f;
     float mouseDeltaY = 0.0f;
 };
-
-static float Clamp(float v, float lo, float hi)
-{
-    if (v < lo) return lo;
-    if (v > hi) return hi;
-    return v;
-}
-
-static double NowSeconds()
-{
-    static LARGE_INTEGER freq{};
-    static bool init = false;
-    if (!init)
-    {
-        QueryPerformanceFrequency(&freq);
-        init = true;
-    }
-
-    LARGE_INTEGER c{};
-    QueryPerformanceCounter(&c);
-    return (double)c.QuadPart / (double)freq.QuadPart;
-}
 
 static void SetupDebugConsole()
 {
@@ -199,20 +180,53 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int nCmdShow)
         cc.camera.SetPosition(t.position);
     }
 
-    // Directional light entity ("sun")
-    king::Entity lightEnt = scene.reg.CreateEntity();
-    {
-        scene.reg.transforms.Emplace(lightEnt);
-        auto& l = scene.reg.lights.Emplace(lightEnt);
-        l.type = king::LightType::Directional;
-        l.color = { 1, 1, 1 };
-        l.intensity = 2.0f;
-        l.direction = { 0.35f, -1.0f, 0.25f };
-        l.castsShadows = true;
-    }
+    // No directional "sun" for this demo: use animated point lights so lighting is obvious.
+    // (Note: our current shadow map path is directional-only, so shadows will be off.)
+    std::array<king::Entity, 4> movingLights{};
+    for (auto& e : movingLights)
+        e = scene.reg.CreateEntity();
 
-    // If the scene ever starts without a light, keep one around.
-    king::systems::LightingSystem::EnsureDefaultSun(scene);
+    // Four moving point lights (slightly dimmer than before).
+    {
+        auto& t = scene.reg.transforms.Emplace(movingLights[0]);
+        t.position = { 0.0f, 3.0f, 0.0f };
+        auto& l = scene.reg.lights.Emplace(movingLights[0]);
+        l.type = king::LightType::Point;
+        l.color = { 1.0f, 0.95f, 0.85f };
+        l.intensity = 7.0f;
+        l.range = 16.0f;
+        l.groupMask = 0xFFFFFFFFu;
+    }
+    {
+        auto& t = scene.reg.transforms.Emplace(movingLights[1]);
+        t.position = { 0.0f, 3.0f, 0.0f };
+        auto& l = scene.reg.lights.Emplace(movingLights[1]);
+        l.type = king::LightType::Point;
+        l.color = { 0.45f, 0.65f, 1.0f };
+        l.intensity = 6.0f;
+        l.range = 16.0f;
+        l.groupMask = 0xFFFFFFFFu;
+    }
+    {
+        auto& t = scene.reg.transforms.Emplace(movingLights[2]);
+        t.position = { 0.0f, 3.0f, 0.0f };
+        auto& l = scene.reg.lights.Emplace(movingLights[2]);
+        l.type = king::LightType::Point;
+        l.color = { 1.0f, 0.35f, 0.35f };
+        l.intensity = 6.0f;
+        l.range = 16.0f;
+        l.groupMask = 0xFFFFFFFFu;
+    }
+    {
+        auto& t = scene.reg.transforms.Emplace(movingLights[3]);
+        t.position = { 0.0f, 3.0f, 0.0f };
+        auto& l = scene.reg.lights.Emplace(movingLights[3]);
+        l.type = king::LightType::Point;
+        l.color = { 1.0f, 0.65f, 0.30f };
+        l.intensity = 6.0f;
+        l.range = 16.0f;
+        l.groupMask = 0xFFFFFFFFu;
+    }
 
     auto makeCubeMesh = [&](float halfExtents) -> king::Entity
     {
@@ -267,7 +281,8 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int nCmdShow)
     }
 
     // Boxes
-    auto addBox = [&](king::Float3 pos, king::Float3 scale, king::Float4 albedo)
+    // (Some boxes are assigned different light masks to demo light grouping.)
+    auto addBox = [&](king::Float3 pos, king::Float3 scale, king::Float4 albedo, uint32_t lightMask = 0xFFFFFFFFu, bool receivesShadows = true)
     {
         king::Entity e = scene.reg.CreateEntity();
         auto& t = scene.reg.transforms.Emplace(e);
@@ -277,11 +292,44 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int nCmdShow)
         r.mesh = cubeMesh;
         r.material.albedo = albedo;
         r.material.shader = "pbr_test";
+        r.lightMask = lightMask;
+        r.receivesShadows = receivesShadows;
     };
 
-    addBox({ -2.0f, 0.0f, 1.0f }, { 1.0f, 1.0f, 1.0f }, { 0.9f, 0.2f, 0.2f, 1.0f });
-    addBox({  0.0f, 0.0f, 2.0f }, { 1.0f, 2.0f, 1.0f }, { 0.2f, 0.6f, 0.9f, 1.0f });
-    addBox({  2.0f, 0.0f, 0.0f }, { 1.0f, 1.0f, 2.0f }, { 0.9f, 0.85f, 0.2f, 1.0f });
+    // Light groups
+    constexpr uint32_t kAll = 0xFFFFFFFFu;
+    constexpr uint32_t kRedGroup = 1u << 0;
+    constexpr uint32_t kBlueGroup = 1u << 1;
+
+    addBox({ -3.0f, 0.0f,  1.0f }, { 1.0f, 1.0f, 1.0f }, { 0.9f, 0.2f, 0.2f, 1.0f }, kAll);
+    addBox({  0.0f, 0.0f,  2.0f }, { 1.0f, 2.0f, 1.0f }, { 0.2f, 0.6f, 0.9f, 1.0f }, kAll);
+    addBox({  3.0f, 0.0f,  0.0f }, { 1.0f, 1.0f, 2.0f }, { 0.9f, 0.85f, 0.2f, 1.0f }, kAll);
+
+    // A slightly denser cluster to make lighting/shadows obvious.
+    for (int z = 0; z < 4; ++z)
+    {
+        for (int x = 0; x < 5; ++x)
+        {
+            const float fx = -4.0f + (float)x * 2.0f;
+            const float fz =  4.0f + (float)z * 2.0f;
+            const uint32_t mask = ((x + z) & 1) ? kRedGroup : kBlueGroup;
+            const king::Float4 col = ((x + z) & 1) ? king::Float4{ 0.85f, 0.35f, 0.35f, 1.0f } : king::Float4{ 0.35f, 0.45f, 0.95f, 1.0f };
+            addBox({ fx, 0.0f, fz }, { 0.9f, 0.9f, 0.9f }, col, mask);
+
+            // Stack a few columns for depth/shadowing.
+            if (((x * 13 + z * 7) % 5) == 0)
+                addBox({ fx, 1.1f, fz }, { 0.9f, 1.6f, 0.9f }, { 0.85f, 0.85f, 0.85f, 1.0f }, kAll);
+        }
+    }
+
+    // Group-specific boxes (only affected by their matching light)
+    addBox({ -2.0f, 0.0f, -2.5f }, { 0.75f, 0.75f, 0.75f }, { 0.9f, 0.3f, 0.3f, 1.0f }, kRedGroup);
+    addBox({  2.0f, 0.0f, -2.5f }, { 0.75f, 1.25f, 0.75f }, { 0.3f, 0.3f, 0.95f, 1.0f }, kBlueGroup);
+
+    // Shadow reception demo: one box that doesn't receive shadows
+    addBox({ 0.0f, 0.0f, -1.0f }, { 1.0f, 1.0f, 1.0f }, { 0.85f, 0.85f, 0.85f, 1.0f }, kAll, false);
+
+    // (Old extra lights removed to keep exposure under control; the 4 moving point lights above cover the demo.)
 
     king::render::d3d11::RenderDeviceD3D11 device;
     HRESULT initHr = device.Initialize(window.Handle(), width, height);
@@ -309,16 +357,21 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int nCmdShow)
     king::Mat4x4 viewProj{};
 
     InputState input;
-    double lastT = NowSeconds();
+    king::Time time;
+    time.SetFixedDeltaSeconds(1.0 / 60.0);
+    time.SetMaxDeltaSeconds(0.10);
+    time.Reset();
 
     king::Window::Event ev{};
     while (window.PumpMessages())
     {
-        const double now = NowSeconds();
-        float dt = (float)(now - lastT);
-        lastT = now;
-        if (dt < 0.0f) dt = 0.0f;
-        if (dt > 0.1f) dt = 0.1f;
+        time.Tick();
+        if (time.FpsUpdated())
+        {
+            const double fps = time.Fps();
+            const double ms = (fps > 1e-6) ? (1000.0 / fps) : 0.0;
+            std::printf("FPS: %.1f (%.2f ms)\n", fps, ms);
+        }
 
         input.mouseDeltaX = 0.0f;
         input.mouseDeltaY = 0.0f;
@@ -414,8 +467,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int nCmdShow)
         }
 
         // Pass 1: update simulation systems.
-        // Camera controls: RMB + mouse look, WASD/QE movement.
-        king::Float3 primaryCamPos{ 0, 0, 0 };
+        // Mouse look is per-frame (uses latest input), movement/animations are fixed-step.
         for (auto e : scene.reg.cameras.Entities())
         {
             auto* cc = scene.reg.cameras.TryGet(e);
@@ -423,7 +475,6 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int nCmdShow)
             if (!cc || !t || !cc->primary)
                 continue;
 
-            // Mouse look only while RMB held.
             if (input.hasFocus && input.rmbDown)
             {
                 const float sens = 0.0025f;
@@ -431,23 +482,92 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int nCmdShow)
                 const float pitch = input.mouseDeltaY * sens;
                 cc->camera.RotateYawPitchRoll(yaw, pitch, 0.0f);
             }
-
-            king::Float3 move{};
-            const float speed = (input.keys[VK_SHIFT] ? 10.0f : 4.0f);
-            if (input.keys['W']) move.z += speed * dt;
-            if (input.keys['S']) move.z -= speed * dt;
-            if (input.keys['D']) move.x += speed * dt;
-            if (input.keys['A']) move.x -= speed * dt;
-            if (input.keys['E']) move.y += speed * dt;
-            if (input.keys['Q']) move.y -= speed * dt;
-
-            if (move.x != 0.0f || move.y != 0.0f || move.z != 0.0f)
-                cc->camera.TranslateLocal(move);
-
-            // Keep transform in sync with camera for now.
-            t->position = cc->camera.Position();
-            primaryCamPos = t->position;
             break;
+        }
+
+        int fixedSteps = 0;
+        constexpr int kMaxFixedStepsPerFrame = 6;
+        while (time.ConsumeFixedStep() && fixedSteps++ < kMaxFixedStepsPerFrame)
+        {
+            const float stepDt = (float)time.FixedDeltaSeconds();
+            const float tNow = (float)time.FixedTimeSeconds();
+
+            // Animate the 4 point lights (fixed-step time base).
+            {
+                const king::Float3 center = { 0.0f, 0.5f, 6.0f };
+                const float r0 = 8.0f;
+                const float r1 = 6.0f;
+                const float h0 = 3.0f;
+
+                const king::Float3 pos[4] = {
+                    { center.x + std::cos(tNow * 0.70f) * r0, h0 + std::sin(tNow * 1.10f) * 0.6f, center.z + std::sin(tNow * 0.70f) * r0 },
+                    { center.x + std::cos(tNow * 0.85f + 1.6f) * r1, h0 + std::sin(tNow * 0.90f + 0.8f) * 0.5f, center.z + std::sin(tNow * 0.85f + 1.6f) * r1 },
+                    { center.x + std::cos(tNow * 0.60f + 3.2f) * r0, h0 + std::sin(tNow * 1.30f + 2.2f) * 0.7f, center.z + std::sin(tNow * 0.60f + 3.2f) * r0 },
+                    { center.x + std::cos(tNow * 0.95f + 4.7f) * r1, h0 + std::sin(tNow * 1.00f + 3.6f) * 0.6f, center.z + std::sin(tNow * 0.95f + 4.7f) * r1 },
+                };
+
+                for (int i = 0; i < 4; ++i)
+                {
+                    if (auto* lt = scene.reg.transforms.TryGet(movingLights[i]))
+                        lt->position = pos[i];
+                }
+            }
+
+            // Fixed-step camera movement (locomotion uses camera forward/right).
+            for (auto e : scene.reg.cameras.Entities())
+            {
+                auto* cc = scene.reg.cameras.TryGet(e);
+                auto* tr = scene.reg.transforms.TryGet(e);
+                if (!cc || !tr || !cc->primary)
+                    continue;
+
+                const float speed = (input.keys[VK_SHIFT] ? 10.0f : 4.0f);
+
+                const king::Float3 f0 = cc->camera.Forward();
+                const king::Float3 r0 = cc->camera.Right();
+                king::Float3 f = { f0.x, 0.0f, f0.z };
+                king::Float3 r = { r0.x, 0.0f, r0.z };
+                const float fl = std::sqrt(f.x * f.x + f.z * f.z);
+                const float rl = std::sqrt(r.x * r.x + r.z * r.z);
+                if (fl > 1e-5f) { f.x /= fl; f.z /= fl; }
+                if (rl > 1e-5f) { r.x /= rl; r.z /= rl; }
+
+                float forwardAxis = 0.0f;
+                float rightAxis = 0.0f;
+                if (input.keys['W']) forwardAxis += 1.0f;
+                if (input.keys['S']) forwardAxis -= 1.0f;
+                if (input.keys['D']) rightAxis += 1.0f;
+                if (input.keys['A']) rightAxis -= 1.0f;
+
+                king::Float3 worldDelta{
+                    (f.x * forwardAxis + r.x * rightAxis) * speed * stepDt,
+                    0.0f,
+                    (f.z * forwardAxis + r.z * rightAxis) * speed * stepDt,
+                };
+                if (input.keys['E']) worldDelta.y += speed * stepDt;
+                if (input.keys['Q']) worldDelta.y -= speed * stepDt;
+
+                if (worldDelta.x != 0.0f || worldDelta.y != 0.0f || worldDelta.z != 0.0f)
+                {
+                    const king::Float3 p = cc->camera.Position();
+                    cc->camera.SetPosition({ p.x + worldDelta.x, p.y + worldDelta.y, p.z + worldDelta.z });
+                }
+
+                tr->position = cc->camera.Position();
+                break;
+            }
+        }
+
+        king::Float3 primaryCamPos{ 0, 0, 0 };
+        for (auto e : scene.reg.cameras.Entities())
+        {
+            auto* cc = scene.reg.cameras.TryGet(e);
+            auto* tr = scene.reg.transforms.TryGet(e);
+            if (cc && tr && cc->primary)
+            {
+                primaryCamPos = tr->position;
+                break;
+            }
         }
 
         (void)king::systems::CameraSystem::UpdatePrimaryCamera(scene, frustum, viewProj);
@@ -455,9 +575,11 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int nCmdShow)
         // Pass 2: render passes.
         const float clearColor[4] = { 0.06f, 0.06f, 0.08f, 1.0f };
         device.BeginFrame(clearColor);
-        renderSystem.RenderGeometryPass(device, scene, frustum, viewProj, primaryCamPos, 1.0f);
+        // Slightly lower exposure to reduce overall brightness.
+        renderSystem.RenderGeometryPass(device, scene, frustum, viewProj, primaryCamPos, 0.75f);
 
-        HRESULT phr = device.Present(1);
+        // Uncapped: don't wait for v-sync.
+        HRESULT phr = device.Present(0);
         if (FAILED(phr))
         {
             if (device.IsDeviceLost(phr))

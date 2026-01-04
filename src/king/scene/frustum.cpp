@@ -21,37 +21,38 @@ static Plane NormalizePlane(float a, float b, float c, float d)
 
 Frustum Frustum::FromViewProjection(const Mat4x4& m)
 {
-    // m is row-major.
-    // Let M be the 4x4, rows r0..r3.
-    // Planes (row-major extraction):
-    // left  = r3 + r0
-    // right = r3 - r0
-    // bottom= r3 + r1
-    // top   = r3 - r1
-    // near  = r3 + r2
-    // far   = r3 - r2
+    // m is row-major, but our math/shaders use ROW-VECTOR convention:
+    //   clip = mul(worldPos, viewProj)
+    // In that convention, frustum planes are extracted from the COLUMNS of the
+    // view-projection matrix (equivalent to extracting from ROWS of transpose).
+    //
+    // Also: D3D depth range is z in [0, 1], so the near/far inequalities are:
+    //   0 <= z <= w
+    // With row-vectors, z = dot(pos, col2), w = dot(pos, col3)
+    //   near plane: col2
+    //   far  plane: col3 - col2
 
     const float* a = m.m;
 
-    auto r0 = [&](int c) { return a[c + 0]; };
-    auto r1 = [&](int c) { return a[c + 4]; };
-    auto r2 = [&](int c) { return a[c + 8]; };
-    auto r3 = [&](int c) { return a[c + 12]; };
+    auto c0 = [&](int r) { return a[0 + r * 4]; };
+    auto c1 = [&](int r) { return a[1 + r * 4]; };
+    auto c2 = [&](int r) { return a[2 + r * 4]; };
+    auto c3 = [&](int r) { return a[3 + r * 4]; };
 
     Frustum f{};
 
-    // left
-    f.planes[0] = NormalizePlane(r3(0) + r0(0), r3(1) + r0(1), r3(2) + r0(2), r3(3) + r0(3));
-    // right
-    f.planes[1] = NormalizePlane(r3(0) - r0(0), r3(1) - r0(1), r3(2) - r0(2), r3(3) - r0(3));
-    // bottom
-    f.planes[2] = NormalizePlane(r3(0) + r1(0), r3(1) + r1(1), r3(2) + r1(2), r3(3) + r1(3));
-    // top
-    f.planes[3] = NormalizePlane(r3(0) - r1(0), r3(1) - r1(1), r3(2) - r1(2), r3(3) - r1(3));
-    // near
-    f.planes[4] = NormalizePlane(r3(0) + r2(0), r3(1) + r2(1), r3(2) + r2(2), r3(3) + r2(3));
-    // far
-    f.planes[5] = NormalizePlane(r3(0) - r2(0), r3(1) - r2(1), r3(2) - r2(2), r3(3) - r2(3));
+    // left   = c3 + c0
+    f.planes[0] = NormalizePlane(c3(0) + c0(0), c3(1) + c0(1), c3(2) + c0(2), c3(3) + c0(3));
+    // right  = c3 - c0
+    f.planes[1] = NormalizePlane(c3(0) - c0(0), c3(1) - c0(1), c3(2) - c0(2), c3(3) - c0(3));
+    // bottom = c3 + c1
+    f.planes[2] = NormalizePlane(c3(0) + c1(0), c3(1) + c1(1), c3(2) + c1(2), c3(3) + c1(3));
+    // top    = c3 - c1
+    f.planes[3] = NormalizePlane(c3(0) - c1(0), c3(1) - c1(1), c3(2) - c1(2), c3(3) - c1(3));
+    // near   = c2  (D3D z>=0)
+    f.planes[4] = NormalizePlane(c2(0), c2(1), c2(2), c2(3));
+    // far    = c3 - c2 (D3D z<=w)
+    f.planes[5] = NormalizePlane(c3(0) - c2(0), c3(1) - c2(1), c3(2) - c2(2), c3(3) - c2(3));
 
     return f;
 }

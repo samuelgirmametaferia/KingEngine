@@ -20,9 +20,14 @@ add_executable(King WIN32
     src/king/systems/lighting_system.cpp
     src/king/scene/camera.cpp
     src/king/scene/frustum.cpp
+    src/king/time/time.cpp
     src/king/render/material.cpp
     src/king/render/shader.cpp
 )
+
+# Also disable applocal on the target itself (the toolchain can run before this
+# CMakeLists is evaluated, so setting the cache variable alone isn't always enough).
+set_target_properties(King PROPERTIES VCPKG_APPLOCAL_DEPS OFF)
 
 target_compile_definitions(King PRIVATE
     WIN32_LEAN_AND_MEAN

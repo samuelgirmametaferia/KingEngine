@@ -25,6 +25,9 @@
     <ClCompile Include="C:\Users\Samuel Girma\Music\KingEngine\src\king\scene\frustum.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="C:\Users\Samuel Girma\Music\KingEngine\src\king\time\time.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="C:\Users\Samuel Girma\Music\KingEngine\src\king\render\material.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>

@@ -116,7 +116,8 @@ static float SampleShadowPCF(float3 wpos)
     float4 lp = mul(float4(wpos, 1.0), gLightViewProj);
     float3 ndc = lp.xyz / max(lp.w, 1e-6);
 
-    float2 uv = ndc.xy * 0.5 + 0.5;
+    // NDC has +Y up, textures have +V down -> flip Y.
+    float2 uv = ndc.xy * float2(0.5, -0.5) + 0.5;
     // Outside shadow map: treat as lit.
     if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0)
         return 1.0;
@@ -243,15 +244,18 @@ struct FSOut
 
 FSOut VSTonemapMain(uint vid : SV_VertexID)
 {
-    // Fullscreen triangle
+    // Fullscreen triangle with correct UVs.
+    // D3D textures have (0,0) at top-left. These UVs are authored so the image
+    // is not upside down without any additional flipping.
     float2 p;
-    if (vid == 0) p = float2(-1.0, -1.0);
-    else if (vid == 1) p = float2(-1.0, 3.0);
-    else p = float2(3.0, -1.0);
+    float2 uv;
+    if (vid == 0) { p = float2(-1.0, -1.0); uv = float2(0.0, 1.0); }
+    else if (vid == 1) { p = float2(-1.0, 3.0); uv = float2(0.0, -1.0); }
+    else { p = float2(3.0, -1.0); uv = float2(2.0, 1.0); }
 
     FSOut o;
     o.pos = float4(p, 0.0, 1.0);
-    o.uv = p * 0.5 + 0.5;
+    o.uv = uv;
     return o;
 }
 
