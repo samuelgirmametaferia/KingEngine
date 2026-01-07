@@ -3,6 +3,8 @@
 #include "components.h"
 #include "sparse_set.h"
 
+#include "../thread_config.h"
+
 #include <cstdint>
 #include <vector>
 
@@ -12,6 +14,11 @@ namespace king
 class Registry
 {
 public:
+    Registry()
+        : mWorkerThreadsCached(king::GetThreadConfig().ecsWorkerThreads)
+    {
+    }
+
     Entity CreateEntity()
     {
         Entity e = ++mNext;
@@ -42,6 +49,10 @@ public:
 
     const std::vector<Entity>& Alive() const { return mAlive; }
 
+    uint32_t WorkerThreads() const { return mWorkerThreadsCached; }
+
+    void SetWorkerThreads(uint32_t threads) { mWorkerThreadsCached = threads; }
+
     SparseSet<Transform> transforms;
     SparseSet<Mesh> meshes;
     SparseSet<MeshRenderer> renderers;
@@ -51,6 +62,7 @@ public:
 private:
     Entity mNext = 0;
     std::vector<Entity> mAlive;
+    uint32_t mWorkerThreadsCached = 0;
 };
 
 } // namespace king

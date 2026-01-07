@@ -178,6 +178,10 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
       <Project>{B43AD49B-7322-3F95-9FB5-E55F8D6D4AF5}</Project>
       <Name>King</Name>
     </ProjectReference>
+    <ProjectReference Include="C:\Users\Samuel Girma\Music\KingEngine\build\ThreadConfigCLI.vcxproj">
+      <Project>{8B4E23D9-C3B8-3BA3-BD57-7C33DE59F33D}</Project>
+      <Name>ThreadConfigCLI</Name>
+    </ProjectReference>
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

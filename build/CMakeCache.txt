@@ -197,6 +197,9 @@ King_SOURCE_DIR:STATIC=C:/Users/Samuel Girma/Music/KingEngine
 //Disable vcpkg applocal deps
 VCPKG_APPLOCAL_DEPS:BOOL=OFF
 
+//Avoid pwsh.exe
+VCPKG_USE_POWERSHELL_CORE:BOOL=OFF
+
 
 ########################
 # INTERNAL cache entries

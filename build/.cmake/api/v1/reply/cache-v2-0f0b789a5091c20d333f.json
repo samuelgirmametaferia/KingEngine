@@ -1040,6 +1040,18 @@
 			],
 			"type" : "BOOL",
 			"value" : "OFF"
+		},
+		{
+			"name" : "VCPKG_USE_POWERSHELL_CORE",
+			"properties" : 
+			[
+				{
+					"name" : "HELPSTRING",
+					"value" : "Avoid pwsh.exe"
+				}
+			],
+			"type" : "BOOL",
+			"value" : "OFF"
 		}
 	],
 	"kind" : "cache",

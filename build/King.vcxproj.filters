@@ -7,10 +7,25 @@
     <ClCompile Include="C:\Users\Samuel Girma\Music\KingEngine\src\king_window.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="C:\Users\Samuel Girma\Music\KingEngine\src\king\thread_config.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="C:\Users\Samuel Girma\Music\KingEngine\src\king\render\d3d11\render_device_d3d11.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="C:\Users\Samuel Girma\Music\KingEngine\src\king\render\d3d11\render_system_d3d11.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\Samuel Girma\Music\KingEngine\src\king\render\d3d11\fullscreen_pass_d3d11.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\Samuel Girma\Music\KingEngine\src\king\render\d3d11\post_process_d3d11.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\Samuel Girma\Music\KingEngine\src\king\render\d3d11\shader_program_d3d11.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\Samuel Girma\Music\KingEngine\src\king\render\d3d11\texture_manager_d3d11.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="C:\Users\Samuel Girma\Music\KingEngine\src\king\systems\camera_system.cpp">
@@ -32,6 +47,15 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="C:\Users\Samuel Girma\Music\KingEngine\src\king\render\shader.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\Samuel Girma\Music\KingEngine\src\king\render\d3d11\shadows.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\Samuel Girma\Music\KingEngine\src\king\perf\perf_analyzer.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\Samuel Girma\Music\KingEngine\src\king\perf\gpu_profiler_d3d11.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>

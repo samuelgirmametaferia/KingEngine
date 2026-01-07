@@ -1,7 +1,12 @@
 C:\Users\Samuel Girma\Music\KingEngine\src\main.cpp;C:\Users\Samuel Girma\Music\KingEngine\build\King.dir\Debug\main.obj
 C:\Users\Samuel Girma\Music\KingEngine\src\king_window.cpp;C:\Users\Samuel Girma\Music\KingEngine\build\King.dir\Debug\king_window.obj
+C:\Users\Samuel Girma\Music\KingEngine\src\king\thread_config.cpp;C:\Users\Samuel Girma\Music\KingEngine\build\King.dir\Debug\thread_config.obj
 C:\Users\Samuel Girma\Music\KingEngine\src\king\render\d3d11\render_device_d3d11.cpp;C:\Users\Samuel Girma\Music\KingEngine\build\King.dir\Debug\render_device_d3d11.obj
 C:\Users\Samuel Girma\Music\KingEngine\src\king\render\d3d11\render_system_d3d11.cpp;C:\Users\Samuel Girma\Music\KingEngine\build\King.dir\Debug\render_system_d3d11.obj
+C:\Users\Samuel Girma\Music\KingEngine\src\king\render\d3d11\fullscreen_pass_d3d11.cpp;C:\Users\Samuel Girma\Music\KingEngine\build\King.dir\Debug\fullscreen_pass_d3d11.obj
+C:\Users\Samuel Girma\Music\KingEngine\src\king\render\d3d11\post_process_d3d11.cpp;C:\Users\Samuel Girma\Music\KingEngine\build\King.dir\Debug\post_process_d3d11.obj
+C:\Users\Samuel Girma\Music\KingEngine\src\king\render\d3d11\shader_program_d3d11.cpp;C:\Users\Samuel Girma\Music\KingEngine\build\King.dir\Debug\shader_program_d3d11.obj
+C:\Users\Samuel Girma\Music\KingEngine\src\king\render\d3d11\texture_manager_d3d11.cpp;C:\Users\Samuel Girma\Music\KingEngine\build\King.dir\Debug\texture_manager_d3d11.obj
 C:\Users\Samuel Girma\Music\KingEngine\src\king\systems\camera_system.cpp;C:\Users\Samuel Girma\Music\KingEngine\build\King.dir\Debug\camera_system.obj
 C:\Users\Samuel Girma\Music\KingEngine\src\king\systems\lighting_system.cpp;C:\Users\Samuel Girma\Music\KingEngine\build\King.dir\Debug\lighting_system.obj
 C:\Users\Samuel Girma\Music\KingEngine\src\king\scene\camera.cpp;C:\Users\Samuel Girma\Music\KingEngine\build\King.dir\Debug\camera.obj
@@ -9,3 +14,6 @@ C:\Users\Samuel Girma\Music\KingEngine\src\king\scene\frustum.cpp;C:\Users\Samue
 C:\Users\Samuel Girma\Music\KingEngine\src\king\time\time.cpp;C:\Users\Samuel Girma\Music\KingEngine\build\King.dir\Debug\time.obj
 C:\Users\Samuel Girma\Music\KingEngine\src\king\render\material.cpp;C:\Users\Samuel Girma\Music\KingEngine\build\King.dir\Debug\material.obj
 C:\Users\Samuel Girma\Music\KingEngine\src\king\render\shader.cpp;C:\Users\Samuel Girma\Music\KingEngine\build\King.dir\Debug\shader.obj
+C:\Users\Samuel Girma\Music\KingEngine\src\king\render\d3d11\shadows.cpp;C:\Users\Samuel Girma\Music\KingEngine\build\King.dir\Debug\shadows.obj
+C:\Users\Samuel Girma\Music\KingEngine\src\king\perf\perf_analyzer.cpp;C:\Users\Samuel Girma\Music\KingEngine\build\King.dir\Debug\perf_analyzer.obj
+C:\Users\Samuel Girma\Music\KingEngine\src\king\perf\gpu_profiler_d3d11.cpp;C:\Users\Samuel Girma\Music\KingEngine\build\King.dir\Debug\gpu_profiler_d3d11.obj

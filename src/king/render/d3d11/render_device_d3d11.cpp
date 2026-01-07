@@ -4,8 +4,26 @@
 #include <d3d11_1.h>
 #include <string>
 
+#if defined(_WIN32)
+#include <windows.h>
+#endif
+
 namespace king::render::d3d11
 {
+
+static bool EnvFlagW(const wchar_t* name)
+{
+#if defined(_WIN32)
+    wchar_t buf[8]{};
+    DWORD n = GetEnvironmentVariableW(name, buf, (DWORD)(sizeof(buf) / sizeof(buf[0])));
+    if (n == 0)
+        return false;
+    return (buf[0] == L'1' || buf[0] == L't' || buf[0] == L'T' || buf[0] == L'y' || buf[0] == L'Y');
+#else
+    (void)name;
+    return false;
+#endif
+}
 
 static HRESULT TryCreateDeviceAndSwapChain(
     HWND hwnd,
@@ -230,14 +248,16 @@ HRESULT RenderDeviceD3D11::CreateStates()
     if (FAILED(hr))
         return hr;
 
-    // Rasterizer state: disable culling for now (iterating quickly).
+    // Rasterizer state: enable backface culling by default.
     tmp = (IUnknown*)mRS;
     SafeRelease(tmp);
     mRS = nullptr;
 
     D3D11_RASTERIZER_DESC rs{};
     rs.FillMode = D3D11_FILL_SOLID;
-    rs.CullMode = D3D11_CULL_NONE;
+    rs.CullMode = D3D11_CULL_BACK;
+    // Most of our authored geometry uses CCW winding for front faces.
+    rs.FrontCounterClockwise = TRUE;
     rs.DepthClipEnable = TRUE;
 
     hr = mDevice->CreateRasterizerState(&rs, &mRS);
@@ -249,11 +269,15 @@ HRESULT RenderDeviceD3D11::Initialize(HWND hwnd, uint32_t width, uint32_t height
     Shutdown();
 
     UINT createFlags = 0;
-#if defined(_DEBUG)
-    createFlags |= D3D11_CREATE_DEVICE_DEBUG;
-#endif
+
+    // IMPORTANT: The D3D11 debug layer can heavily reduce performance.
+    // Make it opt-in so Debug builds can still be used for profiling.
+    // Set `KING_D3D11_DEBUG_LAYER=1` to enable.
+    if (EnvFlagW(L"KING_D3D11_DEBUG_LAYER"))
+        createFlags |= D3D11_CREATE_DEVICE_DEBUG;
 
     std::printf("InitD3D: creating device/swapchain (%ux%u)\n", width, height);
+    std::printf("InitD3D: debug layer %s\n", (createFlags & D3D11_CREATE_DEVICE_DEBUG) ? "ON" : "OFF");
 
     D3D_FEATURE_LEVEL fl{};
     HRESULT hr = TryCreateDeviceAndSwapChain(

@@ -18,7 +18,8 @@
 					[
 						0,
 						1,
-						2
+						2,
+						3
 					]
 				}
 			],
@@ -35,7 +36,8 @@
 					[
 						0,
 						1,
-						2
+						2,
+						3
 					]
 				}
 			],
@@ -44,15 +46,22 @@
 				{
 					"directoryIndex" : 0,
 					"id" : "ALL_BUILD::@6890427a1f51a3e7e1df",
-					"jsonFile" : "target-ALL_BUILD-Debug-7a79895db8f4c1116c63.json",
+					"jsonFile" : "target-ALL_BUILD-Debug-181cd5f991b4244d005f.json",
 					"name" : "ALL_BUILD",
 					"projectIndex" : 0
 				},
 				{
 					"directoryIndex" : 0,
 					"id" : "King::@6890427a1f51a3e7e1df",
-					"jsonFile" : "target-King-Debug-ab4042c547c95a205ec8.json",
+					"jsonFile" : "target-King-Debug-0fcab50ad30533ad74cd.json",
 					"name" : "King",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "ThreadConfigCLI::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-ThreadConfigCLI-Debug-0f89b147611cba0f5d3c.json",
+					"name" : "ThreadConfigCLI",
 					"projectIndex" : 0
 				},
 				{
@@ -81,7 +90,8 @@
 					[
 						0,
 						1,
-						2
+						2,
+						3
 					]
 				}
 			],
@@ -98,7 +108,8 @@
 					[
 						0,
 						1,
-						2
+						2,
+						3
 					]
 				}
 			],
@@ -107,15 +118,22 @@
 				{
 					"directoryIndex" : 0,
 					"id" : "ALL_BUILD::@6890427a1f51a3e7e1df",
-					"jsonFile" : "target-ALL_BUILD-Release-7a79895db8f4c1116c63.json",
+					"jsonFile" : "target-ALL_BUILD-Release-181cd5f991b4244d005f.json",
 					"name" : "ALL_BUILD",
 					"projectIndex" : 0
 				},
 				{
 					"directoryIndex" : 0,
 					"id" : "King::@6890427a1f51a3e7e1df",
-					"jsonFile" : "target-King-Release-a80f398623ddd77ac4f6.json",
+					"jsonFile" : "target-King-Release-8d0af6f34c92febcaf2c.json",
 					"name" : "King",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "ThreadConfigCLI::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-ThreadConfigCLI-Release-7df306f0a037432eb5be.json",
+					"name" : "ThreadConfigCLI",
 					"projectIndex" : 0
 				},
 				{
@@ -144,7 +162,8 @@
 					[
 						0,
 						1,
-						2
+						2,
+						3
 					]
 				}
 			],
@@ -161,7 +180,8 @@
 					[
 						0,
 						1,
-						2
+						2,
+						3
 					]
 				}
 			],
@@ -170,15 +190,22 @@
 				{
 					"directoryIndex" : 0,
 					"id" : "ALL_BUILD::@6890427a1f51a3e7e1df",
-					"jsonFile" : "target-ALL_BUILD-MinSizeRel-7a79895db8f4c1116c63.json",
+					"jsonFile" : "target-ALL_BUILD-MinSizeRel-181cd5f991b4244d005f.json",
 					"name" : "ALL_BUILD",
 					"projectIndex" : 0
 				},
 				{
 					"directoryIndex" : 0,
 					"id" : "King::@6890427a1f51a3e7e1df",
-					"jsonFile" : "target-King-MinSizeRel-4c8cdc69fe5e90e5f9da.json",
+					"jsonFile" : "target-King-MinSizeRel-f8446463c538c61671b4.json",
 					"name" : "King",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "ThreadConfigCLI::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-ThreadConfigCLI-MinSizeRel-4d92db55278d97bea2a5.json",
+					"name" : "ThreadConfigCLI",
 					"projectIndex" : 0
 				},
 				{
@@ -207,7 +234,8 @@
 					[
 						0,
 						1,
-						2
+						2,
+						3
 					]
 				}
 			],
@@ -224,7 +252,8 @@
 					[
 						0,
 						1,
-						2
+						2,
+						3
 					]
 				}
 			],
@@ -233,15 +262,22 @@
 				{
 					"directoryIndex" : 0,
 					"id" : "ALL_BUILD::@6890427a1f51a3e7e1df",
-					"jsonFile" : "target-ALL_BUILD-RelWithDebInfo-7a79895db8f4c1116c63.json",
+					"jsonFile" : "target-ALL_BUILD-RelWithDebInfo-181cd5f991b4244d005f.json",
 					"name" : "ALL_BUILD",
 					"projectIndex" : 0
 				},
 				{
 					"directoryIndex" : 0,
 					"id" : "King::@6890427a1f51a3e7e1df",
-					"jsonFile" : "target-King-RelWithDebInfo-f53b17e0c690adf98c0f.json",
+					"jsonFile" : "target-King-RelWithDebInfo-411229b451ec7f3257ea.json",
 					"name" : "King",
+					"projectIndex" : 0
+				},
+				{
+					"directoryIndex" : 0,
+					"id" : "ThreadConfigCLI::@6890427a1f51a3e7e1df",
+					"jsonFile" : "target-ThreadConfigCLI-RelWithDebInfo-facbda5eccd4f71d5f93.json",
+					"name" : "ThreadConfigCLI",
 					"projectIndex" : 0
 				},
 				{

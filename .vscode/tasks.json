@@ -1,0 +1,61 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Build KingEngine Debug",
+			"type": "shell",
+			"command": "cmake",
+			"args": [
+				"--build",
+				"${workspaceFolder}\\build",
+				"--config",
+				"Debug"
+			],
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "build"
+		},
+		{
+			"label": "Build Debug (kill King)",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"Stop-Process -Name King -Force -ErrorAction SilentlyContinue; cmake --build \"${workspaceFolder}\\build\" --config Debug"
+			],
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "build"
+		},
+		{
+			"label": "Build Debug (kill King, absolute)",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"Stop-Process -Name King -Force -ErrorAction SilentlyContinue; cmake --build \"c:\\Users\\Samuel Girma\\Music\\KingEngine\\build\" --config Debug"
+			],
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "build"
+		},
+		{
+			"label": "Build Debug (kill King inline)",
+			"type": "shell",
+			"command": "Stop-Process -Name King -Force -ErrorAction SilentlyContinue; cmake --build \"C:\\Users\\Samuel Girma\\Music\\KingEngine\\build\" --config Debug",
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "build"
+		},
+		{
+			"label": "Build Debug Kill King (quoted)",
+			"type": "shell",
+			"command": "Stop-Process -Name King -Force -ErrorAction SilentlyContinue; cmake --build 'C:\\Users\\Samuel Girma\\Music\\KingEngine\\build' --config Debug",
+			"isBackground": false,
+			"problemMatcher": [],
+			"group": "build"
+		}
+	]
+}

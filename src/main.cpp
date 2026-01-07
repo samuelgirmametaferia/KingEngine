@@ -14,6 +14,8 @@
 #include <array>
 #include <cmath>
 #include <string>
+#include <cstring>
+#include <vector>
 
 struct InputState
 {
@@ -61,6 +63,25 @@ static void SetupDebugConsole()
 
     SetConsoleOutputCP(CP_UTF8);
     SetConsoleCP(CP_UTF8);
+
+    // Clear once so the CLI starts clean (avoids leaving build logs in view).
+    // Do NOT clear repeatedly (that would flicker).
+    {
+        HANDLE h = GetStdHandle(STD_OUTPUT_HANDLE);
+        if (h && h != INVALID_HANDLE_VALUE)
+        {
+            CONSOLE_SCREEN_BUFFER_INFO csbi{};
+            if (GetConsoleScreenBufferInfo(h, &csbi))
+            {
+                const DWORD cellCount = (DWORD)csbi.dwSize.X * (DWORD)csbi.dwSize.Y;
+                DWORD written = 0;
+                COORD home{ 0, 0 };
+                FillConsoleOutputCharacterA(h, ' ', cellCount, home, &written);
+                FillConsoleOutputAttribute(h, csbi.wAttributes, cellCount, home, &written);
+                SetConsoleCursorPosition(h, home);
+            }
+        }
+    }
 }
 
 static std::wstring HResultMessage(HRESULT hr)
@@ -136,6 +157,50 @@ static void EnableDpiAwareness()
     fn((HANDLE)-4);
 }
 
+static bool EnvFlag(const wchar_t* name)
+{
+    wchar_t buf[8]{};
+    DWORD n = GetEnvironmentVariableW(name, buf, (DWORD)(sizeof(buf) / sizeof(buf[0])));
+    if (n == 0)
+        return false;
+    return (buf[0] == L'1' || buf[0] == L't' || buf[0] == L'T' || buf[0] == L'y' || buf[0] == L'Y');
+}
+
+static uint32_t EnvUInt(const wchar_t* name, uint32_t defaultValue = 0)
+{
+    wchar_t buf[32]{};
+    DWORD n = GetEnvironmentVariableW(name, buf, (DWORD)(sizeof(buf) / sizeof(buf[0])));
+    if (n == 0)
+        return defaultValue;
+    wchar_t* end = nullptr;
+    unsigned long v = wcstoul(buf, &end, 10);
+    (void)end;
+    return (uint32_t)v;
+}
+
+static std::wstring EnvWString(const wchar_t* name)
+{
+    std::wstring out;
+    wchar_t buf[1024]{};
+    DWORD n = GetEnvironmentVariableW(name, buf, (DWORD)(sizeof(buf) / sizeof(buf[0])));
+    if (n == 0 || n >= (DWORD)(sizeof(buf) / sizeof(buf[0])))
+        return out;
+    out.assign(buf, buf + n);
+    return out;
+}
+
+static double FindPerfMs(const std::vector<king::perf::PerfAnalyzer::Sample>& samples, const char* name, bool gpu)
+{
+    for (const auto& s : samples)
+    {
+        if (!s.name || !name)
+            continue;
+        if (s.name == name || std::strcmp(s.name, name) == 0)
+            return gpu ? s.gpuMs : s.cpuMs;
+    }
+    return gpu ? -1.0 : 0.0;
+}
+
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int nCmdShow)
 {
     EnableDpiAwareness();
@@ -162,6 +227,15 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int nCmdShow)
     UINT width = window.ClientWidth();
     UINT height = window.ClientHeight();
 
+    float cameraNearZ = 0.1f;
+    float cameraFarZ = 2000.0f;
+
+    const bool stressTest = EnvFlag(L"KING_STRESS_TEST");
+
+    // Demo sphere "big sphere" layout params (also used for lighting + motion).
+    const king::Float3 bigCenter{ 0.0f, 3.25f, 10.0f };
+    const float bigRadius = 4.0f;
+
     // --- ECS sample scene ---
     king::Scene scene;
 
@@ -169,62 +243,35 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int nCmdShow)
     king::Entity camEnt = scene.reg.CreateEntity();
     {
         auto& t = scene.reg.transforms.Emplace(camEnt);
-        t.position = { 0.0f, 1.5f, -5.0f };
+        // Pull back a bit so the material grid is visible immediately.
+        t.position = { 0.0f, 5.0f, -18.0f };
 
         auto& cc = scene.reg.cameras.Emplace(camEnt);
         cc.primary = true;
 
         king::PerspectiveParams persp;
         persp.aspect = (height > 0) ? ((float)width / (float)height) : (16.0f / 9.0f);
+        cameraNearZ = persp.nearZ;
+        cameraFarZ = persp.farZ;
         cc.camera.SetPerspective(persp);
         cc.camera.SetPosition(t.position);
     }
 
-    // No directional "sun" for this demo: use animated point lights so lighting is obvious.
-    // (Note: our current shadow map path is directional-only, so shadows will be off.)
-    std::array<king::Entity, 4> movingLights{};
-    for (auto& e : movingLights)
-        e = scene.reg.CreateEntity();
-
-    // Four moving point lights (slightly dimmer than before).
+    // Lights: disabled in stress test (colors only).
+    // Normal mode: exactly one point light at the center of the big sphere.
+    if (!stressTest)
     {
-        auto& t = scene.reg.transforms.Emplace(movingLights[0]);
-        t.position = { 0.0f, 3.0f, 0.0f };
-        auto& l = scene.reg.lights.Emplace(movingLights[0]);
+        king::Entity e = scene.reg.CreateEntity();
+        auto& t = scene.reg.transforms.Emplace(e);
+        t.position = bigCenter;
+
+        auto& l = scene.reg.lights.Emplace(e);
         l.type = king::LightType::Point;
         l.color = { 1.0f, 0.95f, 0.85f };
-        l.intensity = 7.0f;
-        l.range = 16.0f;
-        l.groupMask = 0xFFFFFFFFu;
-    }
-    {
-        auto& t = scene.reg.transforms.Emplace(movingLights[1]);
-        t.position = { 0.0f, 3.0f, 0.0f };
-        auto& l = scene.reg.lights.Emplace(movingLights[1]);
-        l.type = king::LightType::Point;
-        l.color = { 0.45f, 0.65f, 1.0f };
-        l.intensity = 6.0f;
-        l.range = 16.0f;
-        l.groupMask = 0xFFFFFFFFu;
-    }
-    {
-        auto& t = scene.reg.transforms.Emplace(movingLights[2]);
-        t.position = { 0.0f, 3.0f, 0.0f };
-        auto& l = scene.reg.lights.Emplace(movingLights[2]);
-        l.type = king::LightType::Point;
-        l.color = { 1.0f, 0.35f, 0.35f };
-        l.intensity = 6.0f;
-        l.range = 16.0f;
-        l.groupMask = 0xFFFFFFFFu;
-    }
-    {
-        auto& t = scene.reg.transforms.Emplace(movingLights[3]);
-        t.position = { 0.0f, 3.0f, 0.0f };
-        auto& l = scene.reg.lights.Emplace(movingLights[3]);
-        l.type = king::LightType::Point;
-        l.color = { 1.0f, 0.65f, 0.30f };
-        l.intensity = 6.0f;
-        l.range = 16.0f;
+        // Night scene: keep range tight so the ground isn't lit too strongly.
+        l.intensity = 8.0f;
+        l.range = 14.0f;
+        l.castsShadows = false;
         l.groupMask = 0xFFFFFFFFu;
     }
 
@@ -266,70 +313,230 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int nCmdShow)
         return me;
     };
 
-    king::Entity cubeMesh = makeCubeMesh(0.5f);
-
-    // Ground box
-    king::Entity groundEnt = scene.reg.CreateEntity();
+    auto makeGroundPlaneMesh = [&](float halfExtents, int segments) -> king::Entity
     {
-        auto& t = scene.reg.transforms.Emplace(groundEnt);
-        t.position = { 0, -1.0f, 0 };
-        t.scale = { 20.0f, 1.0f, 20.0f };
-        auto& r = scene.reg.renderers.Emplace(groundEnt);
-        r.mesh = cubeMesh;
-        r.material.albedo = { 0.25f, 0.75f, 0.25f, 1.0f };
-        r.material.shader = "pbr_test";
-    }
+        const float h = halfExtents;
+        king::Entity me = scene.reg.CreateEntity();
+        auto& m = scene.reg.meshes.Emplace(me);
 
-    // Boxes
-    // (Some boxes are assigned different light masks to demo light grouping.)
-    auto addBox = [&](king::Float3 pos, king::Float3 scale, king::Float4 albedo, uint32_t lightMask = 0xFFFFFFFFu, bool receivesShadows = true)
+        // Subdivided grid plane (top face only), centered at origin on Y=0.
+        // This makes the sandbox less "low poly" and helps diagnose any per-vertex artifacts.
+        // Note: indices are uint16 in this demo mesh container.
+        // Keep (segments + 1)^2 <= 65535.
+        segments = std::max(1, std::min(segments, 254));
+        const int vertsPerSide = segments + 1;
+        m.vertices.reserve((size_t)vertsPerSide * (size_t)vertsPerSide);
+
+        for (int z = 0; z <= segments; ++z)
+        {
+            const float tz = (float)z / (float)segments;
+            const float pz = (-h) + (2.0f * h) * tz;
+            for (int x = 0; x <= segments; ++x)
+            {
+                const float tx = (float)x / (float)segments;
+                const float px = (-h) + (2.0f * h) * tx;
+                m.vertices.push_back(king::VertexPN{ px, 0.0f, pz, 0, 1, 0 });
+            }
+        }
+
+        m.indices.reserve((size_t)segments * (size_t)segments * 6u);
+        for (int z = 0; z < segments; ++z)
+        {
+            for (int x = 0; x < segments; ++x)
+            {
+                const uint32_t i0 = (uint32_t)(z * vertsPerSide + x);
+                const uint32_t i1 = i0 + 1;
+                const uint32_t i2 = (uint32_t)((z + 1) * vertsPerSide + x + 1);
+                const uint32_t i3 = (uint32_t)((z + 1) * vertsPerSide + x);
+
+                // Indices are uint16 in this demo mesh container.
+                m.indices.push_back((uint16_t)i0);
+                m.indices.push_back((uint16_t)i1);
+                m.indices.push_back((uint16_t)i2);
+                m.indices.push_back((uint16_t)i0);
+                m.indices.push_back((uint16_t)i2);
+                m.indices.push_back((uint16_t)i3);
+            }
+        }
+
+        m.boundsCenter = { 0, 0, 0 };
+        // Sphere radius that covers the plane; scaled by transform later.
+        m.boundsRadius = halfExtents * 1.45f;
+        return me;
+    };
+
+    auto makeSphereMesh = [&](float radius, int slices, int stacks) -> king::Entity
+    {
+        // UV sphere (lat/long). Indices are uint16 in this demo mesh container.
+        slices = std::max(3, std::min(slices, 128));
+        stacks = std::max(2, std::min(stacks, 128));
+
+        king::Entity me = scene.reg.CreateEntity();
+        auto& m = scene.reg.meshes.Emplace(me);
+
+        const int vertsPerRing = slices + 1;
+        const int rings = stacks + 1;
+        const int vertCount = vertsPerRing * rings;
+        if (vertCount > 65000)
+        {
+            // Clamp to stay under uint16 indexing.
+            stacks = std::min(stacks, 60);
+            slices = std::min(slices, 60);
+        }
+
+        const float pi = 3.14159265358979323846f;
+        const float twoPi = 6.28318530717958647692f;
+
+        m.vertices.reserve((size_t)(slices + 1) * (size_t)(stacks + 1));
+        for (int y = 0; y <= stacks; ++y)
+        {
+            const float v = (float)y / (float)stacks;
+            const float phi = v * pi; // 0..pi
+            const float sp = std::sinf(phi);
+            const float cp = std::cosf(phi);
+
+            for (int x = 0; x <= slices; ++x)
+            {
+                const float u = (float)x / (float)slices;
+                const float theta = u * twoPi; // 0..2pi
+                const float st = std::sinf(theta);
+                const float ct = std::cosf(theta);
+
+                const float nx = sp * ct;
+                const float ny = cp;
+                const float nz = sp * st;
+
+                king::VertexPN vtx;
+                vtx.x = nx * radius;
+                vtx.y = ny * radius;
+                vtx.z = nz * radius;
+                vtx.nx = nx;
+                vtx.ny = ny;
+                vtx.nz = nz;
+                m.vertices.push_back(vtx);
+            }
+        }
+
+        m.indices.reserve((size_t)slices * (size_t)stacks * 6u);
+        for (int y = 0; y < stacks; ++y)
+        {
+            for (int x = 0; x < slices; ++x)
+            {
+                const uint16_t i0 = (uint16_t)(y * (slices + 1) + x);
+                const uint16_t i1 = (uint16_t)(y * (slices + 1) + x + 1);
+                const uint16_t i2 = (uint16_t)((y + 1) * (slices + 1) + x);
+                const uint16_t i3 = (uint16_t)((y + 1) * (slices + 1) + x + 1);
+
+                // CCW winding when viewed from outside.
+                m.indices.push_back(i0);
+                m.indices.push_back(i2);
+                m.indices.push_back(i1);
+
+                m.indices.push_back(i1);
+                m.indices.push_back(i2);
+                m.indices.push_back(i3);
+            }
+        }
+
+        m.boundsCenter = { 0, 0, 0 };
+        m.boundsRadius = radius;
+        return me;
+    };
+
+    // Shared sphere mesh for the material grid.
+    king::Entity sphereMesh = makeSphereMesh(0.5f, 32, 16);
+
+    // Sphere cluster helper.
+    auto addSphere = [&](king::Float3 pos, king::Float3 scale, king::Float4 albedo, float roughness, float metallic, king::Float3 emissive) -> king::Entity
     {
         king::Entity e = scene.reg.CreateEntity();
         auto& t = scene.reg.transforms.Emplace(e);
         t.position = pos;
         t.scale = scale;
+
         auto& r = scene.reg.renderers.Emplace(e);
-        r.mesh = cubeMesh;
+        r.mesh = sphereMesh;
+        r.material.shader = stressTest ? "unlit" : "pbr";
+        r.material.shadingModel = stressTest ? king::MaterialShadingModel::Unlit : king::MaterialShadingModel::Pbr;
+        r.material.blendMode = king::MaterialBlendMode::Opaque;
         r.material.albedo = albedo;
-        r.material.shader = "pbr_test";
-        r.lightMask = lightMask;
-        r.receivesShadows = receivesShadows;
+        r.material.roughness = roughness;
+        r.material.metallic = metallic;
+        r.material.emissive = emissive;
+        r.receivesShadows = !stressTest;
+        r.castsShadows = !stressTest;
+        r.lightMask = 0xFFFFFFFFu;
+
+        return e;
     };
 
-    // Light groups
-    constexpr uint32_t kAll = 0xFFFFFFFFu;
-    constexpr uint32_t kRedGroup = 1u << 0;
-    constexpr uint32_t kBlueGroup = 1u << 1;
+    // Keep track of the normal-mode sphere entities so we can animate them.
+    std::vector<king::Entity> sphereEntities;
 
-    addBox({ -3.0f, 0.0f,  1.0f }, { 1.0f, 1.0f, 1.0f }, { 0.9f, 0.2f, 0.2f, 1.0f }, kAll);
-    addBox({  0.0f, 0.0f,  2.0f }, { 1.0f, 2.0f, 1.0f }, { 0.2f, 0.6f, 0.9f, 1.0f }, kAll);
-    addBox({  3.0f, 0.0f,  0.0f }, { 1.0f, 1.0f, 2.0f }, { 0.9f, 0.85f, 0.2f, 1.0f }, kAll);
+    // Normal-mode sphere count control.
+    uint32_t sphereTargetCount = EnvUInt(L"KING_SPHERE_COUNT", 260u);
+    sphereTargetCount = std::max(0u, std::min(sphereTargetCount, 2000u));
 
-    // A slightly denser cluster to make lighting/shadows obvious.
-    for (int z = 0; z < 4; ++z)
+    auto clamp01 = [](float v) { return (v < 0.0f) ? 0.0f : (v > 1.0f ? 1.0f : v); };
+
+    // Default demo spheres: skip in stress test (we'll add incrementally).
+    const float smallScale = 0.55f; // sphere mesh radius is 0.5 -> ~0.275 world radius
+    const float pi = 3.14159265358979323846f;
+    const float golden = 1.61803398874989484820f;
+    auto EnsureSphereCount = [&](uint32_t desired)
     {
-        for (int x = 0; x < 5; ++x)
+        if (stressTest)
+            return;
+
+        desired = std::max(0u, std::min(desired, 2000u));
+        if (sphereEntities.size() > desired)
         {
-            const float fx = -4.0f + (float)x * 2.0f;
-            const float fz =  4.0f + (float)z * 2.0f;
-            const uint32_t mask = ((x + z) & 1) ? kRedGroup : kBlueGroup;
-            const king::Float4 col = ((x + z) & 1) ? king::Float4{ 0.85f, 0.35f, 0.35f, 1.0f } : king::Float4{ 0.35f, 0.45f, 0.95f, 1.0f };
-            addBox({ fx, 0.0f, fz }, { 0.9f, 0.9f, 0.9f }, col, mask);
-
-            // Stack a few columns for depth/shadowing.
-            if (((x * 13 + z * 7) % 5) == 0)
-                addBox({ fx, 1.1f, fz }, { 0.9f, 1.6f, 0.9f }, { 0.85f, 0.85f, 0.85f, 1.0f }, kAll);
+            while (sphereEntities.size() > desired)
+            {
+                king::Entity e = sphereEntities.back();
+                sphereEntities.pop_back();
+                scene.reg.DestroyEntity(e);
+            }
         }
-    }
+        else if (sphereEntities.size() < desired)
+        {
+            const uint32_t start = (uint32_t)sphereEntities.size();
+            sphereEntities.reserve(desired);
+            for (uint32_t i = start; i < desired; ++i)
+            {
+                const uint32_t sphereCount = desired;
 
-    // Group-specific boxes (only affected by their matching light)
-    addBox({ -2.0f, 0.0f, -2.5f }, { 0.75f, 0.75f, 0.75f }, { 0.9f, 0.3f, 0.3f, 1.0f }, kRedGroup);
-    addBox({  2.0f, 0.0f, -2.5f }, { 0.75f, 1.25f, 0.75f }, { 0.3f, 0.3f, 0.95f, 1.0f }, kBlueGroup);
+                // Fibonacci sphere distribution (uniform-ish over surface).
+                const float t = (sphereCount > 1) ? ((float)i / (float)(sphereCount - 1)) : 0.0f;
+                const float y = 1.0f - 2.0f * t;
+                const float rr = std::sqrtf(std::max(0.0f, 1.0f - y * y));
+                const float theta = 2.0f * pi * ((float)i / golden);
+                const float x = std::cosf(theta) * rr;
+                const float z = std::sinf(theta) * rr;
 
-    // Shadow reception demo: one box that doesn't receive shadows
-    addBox({ 0.0f, 0.0f, -1.0f }, { 1.0f, 1.0f, 1.0f }, { 0.85f, 0.85f, 0.85f, 1.0f }, kAll, false);
+                float roughness = clamp01(0.05f + 0.95f * std::abs(y));
+                float metallic = clamp01(0.5f + 0.5f * x);
 
-    // (Old extra lights removed to keep exposure under control; the 4 moving point lights above cover the demo.)
+                king::Float4 albedo;
+                albedo.x = 0.65f + 0.25f * clamp01(0.5f + 0.5f * z);
+                albedo.y = 0.65f + 0.20f * clamp01(0.5f + 0.5f * y);
+                albedo.z = 0.65f + 0.25f * clamp01(0.5f + 0.5f * x);
+                albedo.w = 1.0f;
+
+                king::Float3 emissive{ 0.0f, 0.0f, 0.0f };
+                if (std::abs(y) < 0.07f)
+                    emissive = { 0.15f, 0.55f, 1.25f };
+
+                const king::Float3 pos{ bigCenter.x + x * bigRadius, bigCenter.y + y * bigRadius, bigCenter.z + z * bigRadius };
+                sphereEntities.push_back(addSphere(pos, { smallScale, smallScale, smallScale }, albedo, roughness, metallic, emissive));
+            }
+        }
+    };
+
+    if (!stressTest)
+        EnsureSphereCount(sphereTargetCount);
+
+    // (No extra lights.)
 
     king::render::d3d11::RenderDeviceD3D11 device;
     HRESULT initHr = device.Initialize(window.Handle(), width, height);
@@ -355,6 +562,8 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int nCmdShow)
 
     king::Frustum frustum{};
     king::Mat4x4 viewProj{};
+    king::Mat4x4 view{};
+    king::Mat4x4 proj{};
 
     InputState input;
     king::Time time;
@@ -362,15 +571,157 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int nCmdShow)
     time.SetMaxDeltaSeconds(0.10);
     time.Reset();
 
+    // Console FPS (computed from time delta; printed once per ~1s).
+    double fpsWindowSeconds = 0.0;
+    uint32_t fpsWindowFrames = 0;
+
+    // Runtime-tunable post settings (hotkeys below).
+    bool postEnableTonemap = true;
+    bool postEnableVignette = true;
+    float postVignetteStrength = 0.35f;
+    float postVignettePower = 2.2f;
+    bool postEnableBloom = true;
+    float postBloomIntensity = 0.70f;
+    float postBloomThreshold = 1.15f;
+
+    bool prevKeys[256]{};
+
+    // Stress test config (colors only).
+    const uint32_t stressMaxSpheres = EnvUInt(L"KING_STRESS_MAX_SPHERES", 5000u);
+    const uint32_t stressStep = EnvUInt(L"KING_STRESS_STEP", 20u);
+    const uint32_t stressWarmupFrames = EnvUInt(L"KING_STRESS_WARMUP_FRAMES", 60u);
+    const uint32_t stressSampleFrames = EnvUInt(L"KING_STRESS_SAMPLE_FRAMES", 240u);
+
+    uint32_t stressCurrentTarget = 0;
+    bool stressPrintedHeader = false;
+    uint32_t stressWarmupLeft = stressWarmupFrames;
+    uint32_t stressSampleLeft = stressSampleFrames;
+    double stressSumFps = 0.0;
+    uint32_t stressFpsSamples = 0;
+    double stressSumCpuMs = 0.0;
+    double stressSumGpuMs = 0.0;
+    uint32_t stressMsSamples = 0;
+
+    if (stressTest)
+    {
+        // Enable perf tooling only for the stress test.
+        renderSystem.SetPerfEnabled(true);
+        renderSystem.SetGpuPerfEnabled(true);
+
+        // Disable default overlay spam; we will print our own per-step summary.
+        renderSystem.SetPerfPrintToStdout(false);
+    }
+
+    FILE* stressCsv = nullptr;
+    std::wstring stressCsvPath;
+    if (stressTest)
+    {
+        stressCsvPath = EnvWString(L"KING_STRESS_CSV");
+        if (stressCsvPath.empty())
+            stressCsvPath = JoinPath(GetExeDirectory(), L"stress_results.csv");
+
+        _wfopen_s(&stressCsv, stressCsvPath.c_str(), L"wb");
+        if (stressCsv)
+        {
+            std::fprintf(stressCsv, "spheres,avg_fps,avg_cpu_ms,avg_gpu_ms\n");
+            std::fflush(stressCsv);
+        }
+    }
+
     king::Window::Event ev{};
     while (window.PumpMessages())
     {
         time.Tick();
         if (time.FpsUpdated())
+            renderSystem.SetFps(time.Fps());
+
+        // FPS via time delta (stable average over ~1 second).
         {
-            const double fps = time.Fps();
-            const double ms = (fps > 1e-6) ? (1000.0 / fps) : 0.0;
-            std::printf("FPS: %.1f (%.2f ms)\n", fps, ms);
+            const double dt = time.DeltaSeconds();
+            if (dt > 0.0)
+            {
+                fpsWindowSeconds += dt;
+                fpsWindowFrames += 1;
+                if (fpsWindowSeconds >= 1.0)
+                {
+                    const double fps = (fpsWindowSeconds > 0.0) ? ((double)fpsWindowFrames / fpsWindowSeconds) : 0.0;
+                    std::printf("FPS: %.1f\n", fps);
+                    fpsWindowSeconds = 0.0;
+                    fpsWindowFrames = 0;
+                }
+            }
+        }
+
+        // Normal-mode sphere motion (disabled in stress test).
+        // Set KING_DISABLE_SPHERE_MOTION=1 to stop.
+        if (!stressTest && !EnvFlag(L"KING_DISABLE_SPHERE_MOTION"))
+        {
+            const float tsec = (float)time.TotalSeconds();
+
+            // Recompute the base Fibonacci directions and apply a gentle orbit + bob.
+            const int sphereCount = (int)sphereEntities.size();
+            if (sphereCount > 0)
+            {
+                const float orbitSpeed = 0.25f;
+                const float bobSpeed = 1.35f;
+                const float bobAmp = 0.25f;
+
+                for (int i = 0; i < sphereCount; ++i)
+                {
+                    const float tt = (sphereCount > 1) ? ((float)i / (float)(sphereCount - 1)) : 0.0f;
+                    const float y = 1.0f - 2.0f * tt;
+                    const float rr = std::sqrtf(std::max(0.0f, 1.0f - y * y));
+                    const float theta0 = 2.0f * pi * ((float)i / golden);
+                    const float x0 = std::cosf(theta0) * rr;
+                    const float z0 = std::sinf(theta0) * rr;
+
+                    // Rotate around Y.
+                    const float a = tsec * orbitSpeed;
+                    const float ca = std::cosf(a);
+                    const float sa = std::sinf(a);
+                    const float x = x0 * ca - z0 * sa;
+                    const float z = x0 * sa + z0 * ca;
+
+                    const float bob = bobAmp * std::sinf(tsec * bobSpeed + (float)i * 0.13f);
+                    const king::Float3 pos{ bigCenter.x + x * bigRadius,
+                                            bigCenter.y + y * bigRadius + bob,
+                                            bigCenter.z + z * bigRadius };
+
+                    king::Entity e = sphereEntities[(size_t)i];
+                    auto* tr = scene.reg.transforms.TryGet(e);
+                    if (tr)
+                        tr->position = pos;
+                }
+            }
+        }
+
+        if (stressTest)
+        {
+            // Ensure scene contains exactly `stressCurrentTarget` spheres.
+            // We'll add spheres in batches as target increases.
+            // Layout: simple grid in front of camera.
+            const float spacing = 1.25f;
+            const uint32_t currentCount = (uint32_t)scene.reg.renderers.Entities().size();
+            if (currentCount < stressCurrentTarget)
+            {
+                const uint32_t toAdd = stressCurrentTarget - currentCount;
+                for (uint32_t i = 0; i < toAdd; ++i)
+                {
+                    const uint32_t idx = currentCount + i;
+                    const uint32_t cols = 100;
+                    const uint32_t x = idx % cols;
+                    const uint32_t z = idx / cols;
+
+                    king::Float4 albedo{ (float)((idx * 97u) % 255u) / 255.0f,
+                                        (float)((idx * 57u) % 255u) / 255.0f,
+                                        (float)((idx * 17u) % 255u) / 255.0f,
+                                        1.0f };
+                    king::Float3 pos{ -((float)cols * 0.5f) * spacing + (float)x * spacing,
+                                     0.75f,
+                                     6.0f + (float)z * spacing };
+                    addSphere(pos, { smallScale, smallScale, smallScale }, albedo, 1.0f, 0.0f, { 0, 0, 0 });
+                }
+            }
         }
 
         input.mouseDeltaX = 0.0f;
@@ -442,12 +793,40 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int nCmdShow)
                     input.lastMouseX = ev.mouseX;
                     input.lastMouseY = ev.mouseY;
 
-                    if (input.rmbDown)
+                    // Mouse-look is enabled when holding RMB, or when holding Alt.
+                    if (input.rmbDown || input.keys[VK_MENU])
                     {
                         input.mouseDeltaX += (float)dx;
                         input.mouseDeltaY += (float)dy;
                     }
                 }
+            }
+        }
+
+        // Hotkeys for sphere count (normal mode only):
+        // - = decrease by 20
+        // + = increase by 20
+        if (!stressTest)
+        {
+            auto KeyPressedOnce = [&](int vk) -> bool
+            {
+                const bool down = input.keys[vk];
+                const bool pressed = down && !prevKeys[vk];
+                return pressed;
+            };
+
+            if (KeyPressedOnce(VK_OEM_MINUS))
+            {
+                sphereTargetCount = (sphereTargetCount >= 20u) ? (sphereTargetCount - 20u) : 0u;
+                EnsureSphereCount(sphereTargetCount);
+                std::printf("[Spheres] count=%u\n", sphereTargetCount);
+            }
+            if (KeyPressedOnce(VK_OEM_PLUS) || KeyPressedOnce(VK_OEM_5))
+            {
+                // VK_OEM_PLUS is usually '=' key; VK_OEM_5 is a fallback on some layouts.
+                sphereTargetCount = std::min(2000u, sphereTargetCount + 20u);
+                EnsureSphereCount(sphereTargetCount);
+                std::printf("[Spheres] count=%u\n", sphereTargetCount);
             }
         }
 
@@ -475,7 +854,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int nCmdShow)
             if (!cc || !t || !cc->primary)
                 continue;
 
-            if (input.hasFocus && input.rmbDown)
+            if (input.hasFocus && (input.rmbDown || input.keys[VK_MENU]))
             {
                 const float sens = 0.0025f;
                 const float yaw = input.mouseDeltaX * sens;
@@ -492,26 +871,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int nCmdShow)
             const float stepDt = (float)time.FixedDeltaSeconds();
             const float tNow = (float)time.FixedTimeSeconds();
 
-            // Animate the 4 point lights (fixed-step time base).
-            {
-                const king::Float3 center = { 0.0f, 0.5f, 6.0f };
-                const float r0 = 8.0f;
-                const float r1 = 6.0f;
-                const float h0 = 3.0f;
-
-                const king::Float3 pos[4] = {
-                    { center.x + std::cos(tNow * 0.70f) * r0, h0 + std::sin(tNow * 1.10f) * 0.6f, center.z + std::sin(tNow * 0.70f) * r0 },
-                    { center.x + std::cos(tNow * 0.85f + 1.6f) * r1, h0 + std::sin(tNow * 0.90f + 0.8f) * 0.5f, center.z + std::sin(tNow * 0.85f + 1.6f) * r1 },
-                    { center.x + std::cos(tNow * 0.60f + 3.2f) * r0, h0 + std::sin(tNow * 1.30f + 2.2f) * 0.7f, center.z + std::sin(tNow * 0.60f + 3.2f) * r0 },
-                    { center.x + std::cos(tNow * 0.95f + 4.7f) * r1, h0 + std::sin(tNow * 1.00f + 3.6f) * 0.6f, center.z + std::sin(tNow * 0.95f + 4.7f) * r1 },
-                };
-
-                for (int i = 0; i < 4; ++i)
-                {
-                    if (auto* lt = scene.reg.transforms.TryGet(movingLights[i]))
-                        lt->position = pos[i];
-                }
-            }
+            (void)tNow;
 
             // Fixed-step camera movement (locomotion uses camera forward/right).
             for (auto e : scene.reg.cameras.Entities())
@@ -520,6 +880,24 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int nCmdShow)
                 auto* tr = scene.reg.transforms.TryGet(e);
                 if (!cc || !tr || !cc->primary)
                     continue;
+
+                // Keyboard camera rotation (works even without RMB/mouse).
+                if (input.hasFocus)
+                {
+                    float yawAxis = 0.0f;
+                    float pitchAxis = 0.0f;
+
+                    if (input.keys[VK_LEFT] || input.keys['J']) yawAxis -= 1.0f;
+                    if (input.keys[VK_RIGHT] || input.keys['L']) yawAxis += 1.0f;
+                    if (input.keys[VK_UP] || input.keys['I']) pitchAxis -= 1.0f;
+                    if (input.keys[VK_DOWN] || input.keys['K']) pitchAxis += 1.0f;
+
+                    if (yawAxis != 0.0f || pitchAxis != 0.0f)
+                    {
+                        const float rotSpeed = input.keys[VK_SHIFT] ? 2.0f : 1.2f; // rad/sec
+                        cc->camera.RotateYawPitchRoll(yawAxis * rotSpeed * stepDt, pitchAxis * rotSpeed * stepDt, 0.0f);
+                    }
+                }
 
                 const float speed = (input.keys[VK_SHIFT] ? 10.0f : 4.0f);
 
@@ -566,20 +944,128 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int nCmdShow)
             if (cc && tr && cc->primary)
             {
                 primaryCamPos = tr->position;
+                view = cc->camera.ViewMatrix();
+                proj = cc->camera.ProjectionMatrix();
                 break;
             }
         }
 
         (void)king::systems::CameraSystem::UpdatePrimaryCamera(scene, frustum, viewProj);
 
+        // Post hotkeys (tap):
+        // - B: toggle bloom
+        // - V: toggle vignette
+        // - T: toggle tonemap
+        // - R: reset post defaults
+        // - [ / ]: vignette strength -/+
+        // - ; / ': vignette power -/+
+        // - , / .: bloom intensity -/+
+        // - O / P: bloom threshold -/+
+        auto KeyPressed = [&](int vk) -> bool
+        {
+            if (vk < 0 || vk >= 256)
+                return false;
+            return input.keys[vk] && !prevKeys[vk];
+        };
+
+        auto Clamp = [](float v, float lo, float hi) -> float
+        {
+            return (v < lo) ? lo : (v > hi) ? hi : v;
+        };
+
+        const float stepSmall = input.keys[VK_SHIFT] ? 0.10f : 0.02f;
+        const float stepPower = input.keys[VK_SHIFT] ? 0.50f : 0.10f;
+        const float stepBloom = input.keys[VK_SHIFT] ? 0.20f : 0.05f;
+
+        bool postChanged = false;
+        if (KeyPressed('B')) { postEnableBloom = !postEnableBloom; postChanged = true; }
+        if (KeyPressed('V')) { postEnableVignette = !postEnableVignette; postChanged = true; }
+        if (KeyPressed('T')) { postEnableTonemap = !postEnableTonemap; postChanged = true; }
+
+        if (KeyPressed('R'))
+        {
+            postEnableTonemap = true;
+            postEnableVignette = true;
+            postVignetteStrength = 0.35f;
+            postVignettePower = 2.2f;
+            postEnableBloom = true;
+            postBloomIntensity = 0.70f;
+            postBloomThreshold = 1.15f;
+            postChanged = true;
+        }
+
+        if (KeyPressed(VK_OEM_4)) { postVignetteStrength = Clamp(postVignetteStrength - stepSmall, 0.0f, 1.0f); postChanged = true; } // [
+        if (KeyPressed(VK_OEM_6)) { postVignetteStrength = Clamp(postVignetteStrength + stepSmall, 0.0f, 1.0f); postChanged = true; } // ]
+        if (KeyPressed(VK_OEM_1)) { postVignettePower = Clamp(postVignettePower - stepPower, 0.25f, 8.0f); postChanged = true; }      // ;
+        if (KeyPressed(VK_OEM_7)) { postVignettePower = Clamp(postVignettePower + stepPower, 0.25f, 8.0f); postChanged = true; }      // '
+
+        if (KeyPressed(VK_OEM_COMMA))  { postBloomIntensity = Clamp(postBloomIntensity - stepBloom, 0.0f, 5.0f); postChanged = true; } // ,
+        if (KeyPressed(VK_OEM_PERIOD)) { postBloomIntensity = Clamp(postBloomIntensity + stepBloom, 0.0f, 5.0f); postChanged = true; } // .
+        if (KeyPressed('O')) { postBloomThreshold = Clamp(postBloomThreshold - stepBloom, 0.0f, 10.0f); postChanged = true; }
+        if (KeyPressed('P')) { postBloomThreshold = Clamp(postBloomThreshold + stepBloom, 0.0f, 10.0f); postChanged = true; }
+
+        if (postChanged)
+        {
+            std::printf(
+                "[Post] Tonemap=%d | Vignette=%d (strength=%.2f power=%.2f) | Bloom=%d (intensity=%.2f threshold=%.2f)\n",
+                postEnableTonemap ? 1 : 0,
+                postEnableVignette ? 1 : 0,
+                postVignetteStrength,
+                postVignettePower,
+                postEnableBloom ? 1 : 0,
+                postBloomIntensity,
+                postBloomThreshold);
+        }
+
         // Pass 2: render passes.
         const float clearColor[4] = { 0.06f, 0.06f, 0.08f, 1.0f };
         device.BeginFrame(clearColor);
-        // Slightly lower exposure to reduce overall brightness.
-        renderSystem.RenderGeometryPass(device, scene, frustum, viewProj, primaryCamPos, 0.75f);
+        // Renderer preferences (runtime-adjustable later via UI/console/config).
+        king::render::d3d11::RenderSystemD3D11::RenderSettings renderSettings{};
+        renderSettings.enableHdr = !stressTest;
+        renderSettings.enableTonemap = (!stressTest) && postEnableTonemap;
+        renderSettings.enableShadows = !stressTest;
+        renderSettings.enableSsao = false;
+        renderSettings.shadowMapSize = 2048;
+        renderSettings.cascadeCount = 3;
+        renderSettings.shadowStrength = 1.0f;
+        renderSettings.shadowBias = 0.00035f;
+        // Keep shadows from going pitch black.
+        renderSettings.shadowMinVisibility = 0.25f;
+        // Clamp shadow distance to keep texel density high (improves perceived resolution).
+        // Set to 0.0f to use the full camera far plane.
+        renderSettings.shadowMaxDistance = 300.0f;
+        // Controls remaining "zig-zag" aliasing on shadow edges.
+        // 0 = hard, 1 = default, >1 = softer.
+        renderSettings.shadowSoftness = 1.35f;
+        // 1=PCF 3x3 (default), 2=PCF 5x5, 3=Poisson 9-tap
+        renderSettings.shadowFilterQuality = 1;
+        // Night exposure: darker overall.
+        renderSettings.exposure = stressTest ? 0.65f : 0.22f;
+        renderSettings.enableShadowPoissonPcf = false;
+        renderSettings.enableShadowNormalOffsetBias = true;
+        renderSettings.enableShadowReceiverPlaneBias = true;
 
-        // Uncapped: don't wait for v-sync.
-        HRESULT phr = device.Present(0);
+        // Post processing (runtime-tunable via hotkeys)
+        renderSettings.enableVignette = (!stressTest) && postEnableVignette;
+        renderSettings.vignetteStrength = postVignetteStrength;
+        renderSettings.vignettePower = postVignettePower;
+
+        renderSettings.enableBloom = (!stressTest) && postEnableBloom;
+        renderSettings.bloomIntensity = postBloomIntensity;
+        renderSettings.bloomThreshold = postBloomThreshold;
+        // Debug toggles (off by default):
+        // - KING_SHADOW_READBACK=1: prints min/max depth and written pixel count from cascade 0.
+        // - KING_SHADOW_DEBUG=1: raw shadow factor (white=lit, black=shadow)
+        // - KING_SHADOW_DEBUG=2: receivesShadows flag
+        // - KING_SHADOW_DEBUG=3: castsShadows flag
+        renderSettings.debugShadowReadbackOnce = EnvFlag(L"KING_SHADOW_READBACK");
+        renderSettings.shadowDebugView = EnvUInt(L"KING_SHADOW_DEBUG", 0u);
+        renderSystem.RenderGeometryPass(device, scene, frustum, viewProj, view, proj, primaryCamPos, cameraNearZ, cameraFarZ, renderSettings);
+
+        // VSync: set KING_VSYNC=1 to enable waiting for v-sync.
+        const uint32_t vsync = EnvUInt(L"KING_VSYNC", 0u);
+        HRESULT phr = device.Present(vsync ? 1u : 0u);
         if (FAILED(phr))
         {
             if (device.IsDeviceLost(phr))
@@ -604,6 +1090,83 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int nCmdShow)
                 LogHResult("Present", phr);
             }
         }
+
+        // Update previous key state after processing.
+        std::memcpy(prevKeys, input.keys, sizeof(prevKeys));
+
+        if (stressTest)
+        {
+            // Sample per-frame performance for the current step.
+            const auto& samples = renderSystem.PerfSamples();
+            const double frameCpuMs = FindPerfMs(samples, "Frame", false);
+            const double frameGpuMs = FindPerfMs(samples, "Frame", true);
+
+            if (stressWarmupLeft > 0)
+            {
+                stressWarmupLeft--;
+            }
+            else
+            {
+                // FPS samples arrive once per ~1 second.
+                if (time.FpsUpdated())
+                {
+                    stressSumFps += time.Fps();
+                    stressFpsSamples++;
+                }
+                stressSumCpuMs += frameCpuMs;
+                if (frameGpuMs >= 0.0)
+                    stressSumGpuMs += frameGpuMs;
+                stressMsSamples++;
+
+                if (stressSampleLeft > 0)
+                    stressSampleLeft--;
+
+                if (stressSampleLeft == 0)
+                {
+                    if (!stressPrintedHeader)
+                    {
+                        std::printf("[StressTest] max=%u step=%u warmup=%u sample=%u\n", stressMaxSpheres, stressStep, stressWarmupFrames, stressSampleFrames);
+                        std::printf("[StressTest] spheres, avgFPS, avgCPUms, avgGPUms\n");
+                        stressPrintedHeader = true;
+                    }
+
+                    const uint32_t sphereCountNow = (uint32_t)scene.reg.renderers.Entities().size();
+                    const double avgFps = (stressFpsSamples > 0) ? (stressSumFps / (double)stressFpsSamples) : 0.0;
+                    const double avgCpu = (stressMsSamples > 0) ? (stressSumCpuMs / (double)stressMsSamples) : 0.0;
+                    const double avgGpu = (stressMsSamples > 0) ? (stressSumGpuMs / (double)stressMsSamples) : -1.0;
+
+                    std::printf("[StressTest] %u, %.1f, %.3f, %.3f\n", sphereCountNow, avgFps, avgCpu, avgGpu);
+                    if (stressCsv)
+                    {
+                        std::fprintf(stressCsv, "%u,%.3f,%.6f,%.6f\n", sphereCountNow, avgFps, avgCpu, avgGpu);
+                        std::fflush(stressCsv);
+                    }
+
+                    // Next step.
+                    if (stressCurrentTarget >= stressMaxSpheres)
+                    {
+                        std::printf("[StressTest] done\n");
+                        break;
+                    }
+
+                    stressCurrentTarget = std::min(stressMaxSpheres, stressCurrentTarget + stressStep);
+                    stressWarmupLeft = stressWarmupFrames;
+                    stressSampleLeft = stressSampleFrames;
+                    stressSumFps = 0.0;
+                    stressFpsSamples = 0;
+                    stressSumCpuMs = 0.0;
+                    stressSumGpuMs = 0.0;
+                    stressMsSamples = 0;
+                }
+            }
+        }
+    }
+
+    if (stressCsv)
+    {
+        std::fclose(stressCsv);
+        stressCsv = nullptr;
+        std::wprintf(L"[StressTest] CSV written: %s\n", stressCsvPath.c_str());
     }
 
     king::render::d3d11::RenderSystemD3D11::ReleaseSceneMeshBuffers(scene);

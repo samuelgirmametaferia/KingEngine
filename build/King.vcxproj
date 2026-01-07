@@ -87,6 +87,7 @@
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <ClCompile>
       <AdditionalIncludeDirectories>C:\Users\Samuel Girma\Music\KingEngine\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalOptions>%(AdditionalOptions) /FS</AdditionalOptions>
       <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
       <BasicRuntimeChecks>EnableFastChecks</BasicRuntimeChecks>
       <BufferSecurityCheck></BufferSecurityCheck>
@@ -144,6 +145,7 @@
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClCompile>
       <AdditionalIncludeDirectories>C:\Users\Samuel Girma\Music\KingEngine\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalOptions>%(AdditionalOptions) /FS</AdditionalOptions>
       <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
       <BasicRuntimeChecks>Default</BasicRuntimeChecks>
       <BufferSecurityCheck></BufferSecurityCheck>
@@ -202,6 +204,7 @@
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">
     <ClCompile>
       <AdditionalIncludeDirectories>C:\Users\Samuel Girma\Music\KingEngine\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalOptions>%(AdditionalOptions) /FS</AdditionalOptions>
       <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
       <BasicRuntimeChecks>Default</BasicRuntimeChecks>
       <BufferSecurityCheck></BufferSecurityCheck>
@@ -260,6 +263,7 @@
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">
     <ClCompile>
       <AdditionalIncludeDirectories>C:\Users\Samuel Girma\Music\KingEngine\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalOptions>%(AdditionalOptions) /FS</AdditionalOptions>
       <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
       <BasicRuntimeChecks>Default</BasicRuntimeChecks>
       <BufferSecurityCheck></BufferSecurityCheck>
@@ -374,8 +378,13 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
   <ItemGroup>
     <ClCompile Include="C:\Users\Samuel Girma\Music\KingEngine\src\main.cpp" />
     <ClCompile Include="C:\Users\Samuel Girma\Music\KingEngine\src\king_window.cpp" />
+    <ClCompile Include="C:\Users\Samuel Girma\Music\KingEngine\src\king\thread_config.cpp" />
     <ClCompile Include="C:\Users\Samuel Girma\Music\KingEngine\src\king\render\d3d11\render_device_d3d11.cpp" />
     <ClCompile Include="C:\Users\Samuel Girma\Music\KingEngine\src\king\render\d3d11\render_system_d3d11.cpp" />
+    <ClCompile Include="C:\Users\Samuel Girma\Music\KingEngine\src\king\render\d3d11\fullscreen_pass_d3d11.cpp" />
+    <ClCompile Include="C:\Users\Samuel Girma\Music\KingEngine\src\king\render\d3d11\post_process_d3d11.cpp" />
+    <ClCompile Include="C:\Users\Samuel Girma\Music\KingEngine\src\king\render\d3d11\shader_program_d3d11.cpp" />
+    <ClCompile Include="C:\Users\Samuel Girma\Music\KingEngine\src\king\render\d3d11\texture_manager_d3d11.cpp" />
     <ClCompile Include="C:\Users\Samuel Girma\Music\KingEngine\src\king\systems\camera_system.cpp" />
     <ClCompile Include="C:\Users\Samuel Girma\Music\KingEngine\src\king\systems\lighting_system.cpp" />
     <ClCompile Include="C:\Users\Samuel Girma\Music\KingEngine\src\king\scene\camera.cpp" />
@@ -383,6 +392,9 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
     <ClCompile Include="C:\Users\Samuel Girma\Music\KingEngine\src\king\time\time.cpp" />
     <ClCompile Include="C:\Users\Samuel Girma\Music\KingEngine\src\king\render\material.cpp" />
     <ClCompile Include="C:\Users\Samuel Girma\Music\KingEngine\src\king\render\shader.cpp" />
+    <ClCompile Include="C:\Users\Samuel Girma\Music\KingEngine\src\king\render\d3d11\shadows.cpp" />
+    <ClCompile Include="C:\Users\Samuel Girma\Music\KingEngine\src\king\perf\perf_analyzer.cpp" />
+    <ClCompile Include="C:\Users\Samuel Girma\Music\KingEngine\src\king\perf\gpu_profiler_d3d11.cpp" />
   </ItemGroup>
   <ItemGroup />
   <ItemGroup>

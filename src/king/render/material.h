@@ -8,6 +8,19 @@
 namespace king
 {
 
+enum class MaterialBlendMode : uint8_t
+{
+    Opaque = 0,
+    AlphaBlend = 1,
+};
+
+enum class MaterialShadingModel : uint8_t
+{
+    Pbr = 0,
+    Unlit = 1,
+    RimGlow = 2,
+};
+
 struct TextureSet
 {
     // Paths or asset IDs. Keep as strings for now (bindings-friendly).
@@ -24,6 +37,11 @@ struct PbrMaterial
     float roughness = 0.5f;
     float metallic = 0.0f;
     Float3 emissive{ 0, 0, 0 };
+
+    // High-level intent (drives render state + engine-owned shader variant selection).
+    // These are NOT per-pass settings.
+    MaterialBlendMode blendMode = MaterialBlendMode::Opaque;
+    MaterialShadingModel shadingModel = MaterialShadingModel::Pbr;
 
     // Link to a shader and textures
     std::string shader; // e.g. "pbr_deferred", "pbr_forward"

@@ -8,6 +8,48 @@
 namespace king
 {
 
+static bool EqualsI(const std::string& a, const char* b)
+{
+    if (!b)
+        return false;
+    if (a.size() != std::strlen(b))
+        return false;
+    for (size_t i = 0; i < a.size(); ++i)
+    {
+        char ca = a[i];
+        char cb = b[i];
+        if (ca >= 'A' && ca <= 'Z') ca = (char)(ca - 'A' + 'a');
+        if (cb >= 'A' && cb <= 'Z') cb = (char)(cb - 'A' + 'a');
+        if (ca != cb)
+            return false;
+    }
+    return true;
+}
+
+static void DeriveIntentFromShaderName(PbrMaterial& m)
+{
+    // Convenience defaults so existing content keeps working.
+    // Custom HLSL path keeps the default (PBR/opaque) unless explicitly overridden.
+    if (m.shader.empty())
+        return;
+
+    if (m.shader.size() >= 5)
+    {
+        const auto s = m.shader;
+        const auto n = s.size();
+        const auto suf = s.substr(n - 5);
+        if (EqualsI(suf, ".hlsl"))
+            return;
+    }
+
+    if (EqualsI(m.shader, "unlit") || EqualsI(m.shader, "unlit_color"))
+        m.shadingModel = MaterialShadingModel::Unlit;
+    else if (EqualsI(m.shader, "rim") || EqualsI(m.shader, "rim_glow") || EqualsI(m.shader, "rim_outline_glow"))
+        m.shadingModel = MaterialShadingModel::RimGlow;
+    else
+        m.shadingModel = MaterialShadingModel::Pbr;
+}
+
 static bool ReadLine(std::ifstream& in, std::string& line)
 {
     std::getline(in, line);
@@ -55,6 +97,38 @@ bool LoadMaterialFile(const char* path, PbrMaterial& outMaterial, std::string* o
         if (key == "shader")
         {
             iss >> outMaterial.shader;
+        }
+        else if (key == "blend")
+        {
+            std::string v;
+            iss >> v;
+            if (EqualsI(v, "opaque"))
+                outMaterial.blendMode = MaterialBlendMode::Opaque;
+            else if (EqualsI(v, "alpha") || EqualsI(v, "alphablend") || EqualsI(v, "transparent"))
+                outMaterial.blendMode = MaterialBlendMode::AlphaBlend;
+            else
+            {
+                if (outError)
+                    *outError = "Unknown blend mode at " + std::to_string(lineNo) + ": " + v;
+                return false;
+            }
+        }
+        else if (key == "shading")
+        {
+            std::string v;
+            iss >> v;
+            if (EqualsI(v, "pbr") || EqualsI(v, "lit"))
+                outMaterial.shadingModel = MaterialShadingModel::Pbr;
+            else if (EqualsI(v, "unlit"))
+                outMaterial.shadingModel = MaterialShadingModel::Unlit;
+            else if (EqualsI(v, "rim") || EqualsI(v, "rimglow") || EqualsI(v, "rim_glow"))
+                outMaterial.shadingModel = MaterialShadingModel::RimGlow;
+            else
+            {
+                if (outError)
+                    *outError = "Unknown shading model at " + std::to_string(lineNo) + ": " + v;
+                return false;
+            }
         }
         else if (key == "albedo")
         {
@@ -111,6 +185,9 @@ bool LoadMaterialFile(const char* path, PbrMaterial& outMaterial, std::string* o
 
     if (outMaterial.shader.empty())
         outMaterial.shader = "pbr";
+
+    // If the file didn't specify intent explicitly, infer a sane default.
+    DeriveIntentFromShaderName(outMaterial);
 
     return true;
 }
